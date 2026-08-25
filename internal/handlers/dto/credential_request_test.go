@@ -22,6 +22,7 @@ func TestSubmitCredentialsRequestValidation(t *testing.T) {
 		{
 			name: "PAN requires name and dob",
 			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
 				Credentials: []dto.CredentialItem{
 					{CredType: "PAN", CredID: "ABCDE1234F"},
 				},
@@ -31,6 +32,7 @@ func TestSubmitCredentialsRequestValidation(t *testing.T) {
 		{
 			name: "PAN with name and dob is valid",
 			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
 				Credentials: []dto.CredentialItem{
 					{CredType: "PAN", CredID: "ABCDE1234F", Name: "John Doe", Dob: "01/01/1990"},
 				},
@@ -40,6 +42,7 @@ func TestSubmitCredentialsRequestValidation(t *testing.T) {
 		{
 			name: "GST does not require name/dob",
 			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
 				Credentials: []dto.CredentialItem{
 					{CredType: "GST", CredID: "29AABCU9603R1ZM"},
 				},
@@ -49,6 +52,7 @@ func TestSubmitCredentialsRequestValidation(t *testing.T) {
 		{
 			name: "missing cred_id",
 			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
 				Credentials: []dto.CredentialItem{
 					{CredType: "GST"},
 				},
@@ -56,8 +60,18 @@ func TestSubmitCredentialsRequestValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "missing participant_id",
+			req: dto.SubmitCredentialsRequest{
+				Credentials: []dto.CredentialItem{
+					{CredType: "GST", CredID: "29AABCU9603R1ZM"},
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "mixed batch: one PAN item missing dob fails the whole request",
 			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
 				Credentials: []dto.CredentialItem{
 					{CredType: "GST", CredID: "29AABCU9603R1ZM"},
 					{CredType: "PAN", CredID: "ABCDE1234F", Name: "John Doe"},
@@ -68,6 +82,7 @@ func TestSubmitCredentialsRequestValidation(t *testing.T) {
 		{
 			name: "mixed batch: both valid",
 			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
 				Credentials: []dto.CredentialItem{
 					{CredType: "GST", CredID: "29AABCU9603R1ZM"},
 					{CredType: "PAN", CredID: "ABCDE1234F", Name: "John Doe", Dob: "01/01/1990"},

@@ -12,6 +12,9 @@ import (
 )
 
 type VerifyIdentityRequest struct {
+	// ParticipantID is the onboarded NP id from the registry service DB.
+	// Not required for Verify Identity for now; uncomment if/when needed.
+	// ParticipantID string `json:"participant_id" validate:"required"`
 	CredID   string `json:"cred_id" validate:"required"`
 	CredType string `json:"cred_type" validate:"required"`
 	Name     string `json:"name" validate:"required_if=CredType PAN"`

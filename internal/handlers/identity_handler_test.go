@@ -33,7 +33,7 @@ func setupTestApp(t *testing.T, digioHandler http.HandlerFunc) *fiber.App {
 	h := bootstrap.NewHandlers(svc, nil)
 
 	app := fiber.New()
-	bootstrap.RegisterRoutes(app, h)
+	bootstrap.RegisterRoutes(app, h, nil)
 
 	return app
 }

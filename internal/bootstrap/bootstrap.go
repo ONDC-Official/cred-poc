@@ -59,13 +59,17 @@ func New() (*App, error) {
 	}
 
 	handlers := NewHandlers(identityService, credHandler)
+	authVerifier, err := setupAuthVerifier(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup auth verifier: %w", err)
+	}
 
 	fiberApp := fiber.New(fiber.Config{
 		AppName: fmt.Sprintf("%s (%s)", cfg.App.Name, cfg.App.Env),
 	})
 
 	registerMiddleware(fiberApp)
-	registerRoutes(fiberApp, handlers)
+	registerRoutes(fiberApp, handlers, authVerifier)
 
 	return &App{
 		cfg:    cfg,
