@@ -1,0 +1,221 @@
+Part 1: Go vocabulary, mapped to Node
+
+Go: go.mod / go.sum
+Node/JS equivalent: package.json / package-lock.json
+Notes: declares the module name + deps
+────────────────────────────────────────
+Go: package foo (top of every file)
+Node/JS equivalent: ES module / folder-as-module
+Notes: every file in a directory must declare the same package name; a directory = a package (≈
+a Node folder with an implicit barrel export)
+────────────────────────────────────────
+Go: import "credential-service/internal/config"
+Node/JS equivalent: import config from './internal/config'
+Notes: Go imports by full module path, not relative ../../ — the module name in go.mod (module
+credential-service) is the root
+────────────────────────────────────────
+Go: Exported vs unexported
+Node/JS equivalent: export vs not
+Notes: Capitalized name = exported/public (Config, NewPostgres), lowercase = private to the
+package (validate, gstPattern). No export keyword — capitalization is the visibility modifier.
+────────────────────────────────────────
+Go: struct
+Node/JS equivalent: class with only data (no methods baked in) / plain object shape
+Notes: type Config struct { Name string } ≈ a TS interface/object shape
+────────────────────────────────────────
+Go: Methods with a "receiver"
+Node/JS equivalent: class methods, but bolted on separately
+Notes: func (c *Config) Load() {...} — reads "a method Load on type *Config". There's no class
+Config { load() {} }; the method lives outside the struct definition entirely.
+────────────────────────────────────────
+Go: *Type (pointer)
+Node/JS equivalent: passing by ref
+Notes: *gorm.DB is "a reference to a DB handle" — roughly like passing an object in JS (objects
+
+are always by-reference there; Go makes you choose, and structs are by-value by default unless
+ you use *)
+────────────────────────────────────────
+Go: interface
+Node/JS equivalent: duck typing, but checked at compile time
+Notes: Go interfaces are implicit erface just by having the right
+methods, no implements keyword. This is like TypeScript structural typing, but Go has no
+classes/inheritance at all — only
+────────────────────────────────────────
+Go: error return value
+Node/JS equivalent: try/catch
+Notes: Go has no exceptions for nofallible call returns (result,error)
+and you check if err != nil immedisingle biggest idiom shift coming
+from JS.
+──────────────────────────────────
+Go: nil
+Node/JS equivalent: null/undefined
+Notes: zero-value for pointers, interfaces, maps, slices, channels
+──────────────────────────────────
+Go: goroutine (go func(){...}())
+Node/JS equivalent: not quite asynheap OS-thread-like worker
+Notes: Node has one thread + an event loop; Go can run thousands of real concurrent goroutines.
+
+go someFunc() = "run this concurrently, don't wait."
+──────────────────────────────────
+Go: channel (chan T)
+Node/JS equivalent: an async queue
+Notes: goroutines send/receive values through channels instead of callbacks or Promises — it's
+how this repo's background worker
+────────────────────────────────────────
+Go: context.Context
+Node/JS equivalent: AbortController + request-scoped values, combined
+Notes: passed as the first arg to t can be cancelled or timed out
+────────────────────────────────────────
+Go: defer
+Node/JS equivalent: finally
+Notes: defer resp.Body.Close() — rnction returns, wherever thathappens
+──────────────────────────────────
+Go: Fiber (gofiber/fiber)
+Node/JS equivalent: Express.js
+Notes: nearly line-for-line equivalent API: app.Post("/path", handler), c.JSON(...), middleware
+
+via app.Use(...)
+──────────────────────────────────
+Go: GORM
+Node/JS equivalent: Sequelize / Pr
+Notes: struct tags (`gorm:"type:uuid;primaryKey"`) are like Prisma schema annotations, but
+written inline on the Go struct fie schema file
+────────────────────────────────────────
+Go: envconfig
+Node/JS equivalent: dotenv + manual process.env.X reads
+Notes: struct tags declare env varratively instead of one
+process.env.FOO per line
+
+The one that trips up Node devs most: no async/await, no Promises. Go functions that do I/O
+just... block, but because they ruocking one doesn't block anyoneelse. context.Context is how you'd cancel/timeout something that in Node you'd do with
+AbortController or Promise.race.
+
+Part 2: The repo, folder by folder
+
+  Ran 1 shell command
+
+Part 3: The layers, with Node-worl
+
+cmd/api/main.go        → your bin/s: just calls into the real app
+internal/bootstrap/    → your app.js composition root — reads config, builds the DB pool,
+                          construc. Hand-rolled dependency injection
+                          (no NestJS-style container here — just plain functions passing things
+along)
+internal/config/       → dotenv + process.env parsing, but declarative (struct tags instead of
+                          one `pro
+internal/handlers/     → Express route handlers (controllers)
+internal/handlers/dto/ → request/re Zod schemas or TS interfaces
+internal/middleware/   → Express middleware (logger, panic-recovery ≈ a global error handler)
+internal/models/       → Sequelize
+internal/repository/   → your DAO layer — findById, create, update, wrapping GORM calls
+internal/service/      → business  handlers and repositories
+internal/service/client/ → an axios wrapper module (the Digio HTTP client)
+internal/credential/   → domain loidation + request/response shaping
+internal/worker/       → a hand-rolled background job processor (no Redis/BullMQ — just a
+                          Go chann
+internal/database/     → migrations, but as inline Go strings instead of a knex/sequelize
+                          migratio
+pkg/                   → code meant to be importable by other projects (only postgres.go here)
+
+"internal" is a real, compiler-enforced boundary — unlike a Node convention (_private/ or just
+a lint rule), Go's compiler physicther module import from internal/.pkg/ has no such restriction.
+
+Part 4: The flow, now reading actual Go syntax
+
+Let's re-walk the boot + request flow, but stop at each unfamiliar construct.
+
+1. The entrypoint — as simple as Go gets:
+// cmd/api/main.go
+func main() {
+    if err := bootstrap.Run(); err
+        log.Fatal(err)
+    }
+}
+bootstrap.Run() returns error (Go'hink of it as "either nil, meaningsuccess, or an object with a .Error() string method"). if err := bootstrap.Run(); err != nil is
+Go's try/catch — declare err, immehere the call happens. You'll seethis pattern hundreds of times in this codebase; there is no exception-throwing equivalent to
+lean on instead.
+
+2. Config — struct tags do the pro
+// internal/config/config.go
+type DigioConfig struct {
+    BaseURL string        `envconfig:"BASE_URL" required:"true"`
+    Token   string        `envconf"`
+    Timeout time.Duration `envconfig:"TIMEOUT" default:"30s"`
+}
+The text in backticks is a struct tag — metadata read via reflection at runtime by the
+envconfig library. It's roughly thrator (@IsString() token: string ina NestJS DTO). envconfig.Process("CREDENTIAL_SERVICE", &cfg) walks this struct and populates
+Token from CREDENTIAL_SERVICE_DIGIinter — "here's the address of mystruct, mutate it in place" — because Go passes by value by default, so without & the function
+would only get a disposable copy.
+
+3. A handler — this one reads almo
+// internal/handlers/identity_handler.go
+func (h *IdentityHandler) VerifyIdr {
+    var req VerifyIdentityRequest
+    if err := c.BodyParser(&req);
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid JSON"})
+    }
+    ...
+    result, err := h.service.Verifq.CredID, req.CredType)
+    ...
+    return c.JSON(result)
+}
+func (h *IdentityHandler) VerifyIdith a receiver — read it as"VerifyIdentity is a method you can call on any *IdentityHandler," equivalent to class
+IdentityHandler { verifyIdentity(chod is declared as a free functionoutside the struct, linked only by that (h *IdentityHandler) bit. c *fiber.Ctx is Fiber's
+request/response context object —  res) combined into one.fiber.Map{"error": "..."} is just map[string]interface{} — think { error: "..." } in JS.
+
+4. Interfaces — Go's version of duck typing:
+// internal/credential/credential.
+type CredentialHandler interface {
+    CredType() string
+    ValidateCredData(data json.RawMessage) error
+    BuildDigioRequest(data json.Ra
+    ParseDigioResponse(body []byte) (*VerificationResult, error)
+    Process(ctx context.Context, drificationResult, error)
+}
+There's no implements CredentialHaebase. Any type that happens to have all five of these methods automatically satisfies this interface — that's why *BaseCredential
+(in base.go) can be returned from er as a CredentialHandler with zeroexplicit wiring. It's structural typing, checked at compile time — closest Node analogy is
+TypeScript's structural interfacess/inheritance at all to fall backon, only this.
+
+5. base.go — actually the most Node-familiar file in the repo, because Go treats functions as
+first-class values just like JS do
+type BaseCredential struct {
+    validateFn  func(json.RawMessa
+    buildReqFn  func(json.RawMessage) (any, error)
+    parseRespFn func([]byte) (*Ver
+}
+This is exactly the pattern of stoproperties in JS ({ validateFn:(data) => {...} }). pan_handler.go constructs a BaseCredential by passing in PAN-specific
+functions for these three fields — plain function values, same trickyou'd use in a Node factory function.
+
+6. Goroutines + channels — the one genuinely new concept (no direct Node equivalent):
+// internal/worker/worker.go
+func (w *CredentialWorker) Start(ctx context.Context) {
+    go w.run(ctx)          // "run block the caller"
+}
+
+func (w *CredentialWorker) run(ctx context.Context) {
+    for {
+        select {                        // like a switch, but waits on whichever channel fires
+first
+        case <-w.stopCh:      return
+        case <-ctx.Done():    retu
+        case id := <-w.jobCh: w.processOne(ctx, id)
+        case <-w.pollTicker.C: w.p
+        }
+    }
+}
+go w.run(ctx) launches run on a ne as setImmediate, but it's a reallightweight thread, not a callback queued on the single JS event loop. chan uuid.UUID (jobCh)
+is a typed pipe: CredentialService.jobCh <- rec.ID (send), and thisworker does case id := <-w.jobCh (receive) — closest Node analogy is an EventEmitter or a Bull
+queue, but built into the languageocks the goroutine until somethingarrives (no callback registration needed). select is like Promise.race — it waits on multiple
+channels and runs whichever branch
+
+7. Pointers vs. values — why you s
+func NewCredentialService(credReqRepo *repository.CredentialRequestRepository, ...)
+*CredentialService
+*repository.CredentialRequestRepository means "a pointer to (reference to) a
+CredentialRequestRepository." In Jerences — you never think aboutthis. In Go, structs are copied by value unless you explicitly use a pointer, so almost every
+struct that needs to be shared or ervice, a handler) is passed aroundas a pointer. Rule of thumb while reading this repo: if you see *SomeType, mentally read it as
+"a reference to SomeType," same as
+
+---
+
+With that vocabulary, you can now /service/credential_service.go (open in your IDE) start to finish and it should parse the same way an Express service file would — plus the syntax primer above for aforeign. Want to pick one specificfile next and go through it line-by-line together, or should I re-draw the request flow diagram now that you have the Go literacy ide it?

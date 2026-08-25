@@ -1,0 +1,17 @@
+# Binaries
+build/
+bin/
+tmp/
+
+# Env
+.env
+.env.*
+!.env.sample
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Local-only docs (never tracked, never committed)
+local-docs/

@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.sample
+bin/
+build/
+tmp/
+*.md
+.idea/
+.vscode/
+.DS_Store
+docker-compose*.yml
+Makefile

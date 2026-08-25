@@ -1,0 +1,49 @@
+services:
+  credential-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: credential-service
+    ports:
+      - "${CREDENTIAL_SERVICE_APP_PORT:-8080}:8080"
+    env_file:
+      - path: .env.sample
+        required: true
+      - path: .env
+        required: false
+    environment:
+      CREDENTIAL_SERVICE_APP_PORT: "8080"
+      # When running inside Docker, `localhost` would point to the API container itself.
+      # Use the Postgres service hostname instead.
+      CREDENTIAL_SERVICE_DB_HOST: "postgres"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: credential-service-postgres
+    environment:
+      POSTGRES_USER: ${CREDENTIAL_SERVICE_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${CREDENTIAL_SERVICE_DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${CREDENTIAL_SERVICE_DB_NAME:-credential_service}
+    ports:
+      - "${CREDENTIAL_SERVICE_DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CREDENTIAL_SERVICE_DB_USER:-postgres} -d ${CREDENTIAL_SERVICE_DB_NAME:-credential_service}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
