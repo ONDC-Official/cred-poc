@@ -8,14 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"credential-service/internal/credential"
 	"credential-service/internal/service/client"
 )
 
 func TestFssaiHandlerValidateCredData(t *testing.T) {
 	t.Parallel()
 
-	handler := credential.NewFssaiHandler(nil)
+	handler := testVerifier(t, nil, "FSSAI")
 
 	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"12345"}`)); err == nil {
 		t.Fatal("expected error for FSSAI id shorter than 14 digits")
@@ -26,8 +25,6 @@ func TestFssaiHandlerValidateCredData(t *testing.T) {
 	}
 }
 
-// Fixture lifted from team_pipeline_2807.py's verify_fssai() docstring —
-// Digio's current, common FSSAI response shape (Format B).
 func TestFssaiHandlerProcessCurrentFormat(t *testing.T) {
 	t.Parallel()
 
@@ -60,7 +57,7 @@ func TestFssaiHandlerProcessCurrentFormat(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewFssaiHandler(digioClient)
+	handler := testVerifier(t, digioClient, "FSSAI")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"21523064000396"}`))
 	if err != nil {
@@ -83,7 +80,6 @@ func TestFssaiHandlerProcessCurrentFormat(t *testing.T) {
 	}
 }
 
-// Legacy top-level shape (Format A) — still handled for backward compatibility.
 func TestFssaiHandlerProcessLegacyFormat(t *testing.T) {
 	t.Parallel()
 
@@ -105,7 +101,7 @@ func TestFssaiHandlerProcessLegacyFormat(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewFssaiHandler(digioClient)
+	handler := testVerifier(t, digioClient, "FSSAI")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"21523064000396"}`))
 	if err != nil {
@@ -136,7 +132,7 @@ func TestFssaiHandlerProcessUnexpectedFormatIsSoftFailure(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewFssaiHandler(digioClient)
+	handler := testVerifier(t, digioClient, "FSSAI")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"21523064000396"}`))
 	if err != nil {
@@ -165,7 +161,7 @@ func TestFssaiHandlerProcessAttachesEvidencesOnDigioRejection(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewFssaiHandler(digioClient)
+	handler := testVerifier(t, digioClient, "FSSAI")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"21523064000396"}`))
 	if err != nil {

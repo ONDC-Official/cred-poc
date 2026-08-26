@@ -9,14 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"credential-service/internal/credential"
 	"credential-service/internal/service/client"
 )
 
 func TestPanHandlerValidateCredDataRequiresNameDob(t *testing.T) {
 	t.Parallel()
 
-	handler := credential.NewPanHandler(nil)
+	handler := testVerifier(t, nil, "PAN")
 
 	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F"}`)); err == nil {
 		t.Fatal("expected error for cred_data missing name/dob")
@@ -62,7 +61,7 @@ func TestPanHandlerProcessSendsNameDobToDigio(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewPanHandler(digioClient)
+	handler := testVerifier(t, digioClient, "PAN")
 
 	credData := json.RawMessage(`{"id_no":"ABCDE1234F","name":"John Doe","dob":"01/01/1990"}`)
 	result, err := handler.Process(context.Background(), credData)
@@ -121,7 +120,7 @@ func TestPanHandlerProcessAttachesEvidencesOnDigioRejection(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewPanHandler(digioClient)
+	handler := testVerifier(t, digioClient, "PAN")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"ABCDE1234F","name":"John Doe","dob":"01/01/1990"}`))
 	if err != nil {

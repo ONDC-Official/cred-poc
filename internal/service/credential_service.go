@@ -93,7 +93,7 @@ func (s *CredentialService) SubmitCredentials(req *dto.SubmitCredentialsRequest)
 		credTypeID := s.enumCache.CredTypeID(item.CredType)
 
 		var issuer *uuid.UUID
-		if v := models.IssuerForCredType(item.CredType); v != "" {
+		if v := s.registry.IssuerFor(item.CredType); v != "" {
 			id := s.enumCache.IssuerID(v)
 			issuer = &id
 		}

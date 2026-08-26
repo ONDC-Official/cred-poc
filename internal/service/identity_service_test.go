@@ -31,7 +31,15 @@ func newTestRegistry(t *testing.T, digioHandler http.HandlerFunc) (*credential.V
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	return credential.NewVerifierRegistry(digioClient), server.Close
+	dir, err := credential.FindDefinitionsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := credential.NewRegistryFromDir(dir, digioClient)
+	if err != nil {
+		t.Fatalf("NewRegistryFromDir: %v", err)
+	}
+	return registry, server.Close
 }
 
 func TestIdentityServiceResolvesPAN(t *testing.T) {

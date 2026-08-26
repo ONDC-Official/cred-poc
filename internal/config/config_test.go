@@ -32,3 +32,25 @@ func TestAuthEnvKeysUseAuthPrefix(t *testing.T) {
 		t.Fatalf("unexpected unique key id: %q", cfg.Auth.RegistryUniqueKeyID)
 	}
 }
+
+func TestCredentialTypesDirDefaultAndOverride(t *testing.T) {
+	t.Setenv("CREDENTIAL_SERVICE_DIGIO_BASE_URL", "https://example.com")
+	t.Setenv("CREDENTIAL_SERVICE_DIGIO_TOKEN", "tok")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Credential.TypesDir != "configs/credential-types" {
+		t.Fatalf("unexpected default TypesDir: %q", cfg.Credential.TypesDir)
+	}
+
+	t.Setenv("CREDENTIAL_SERVICE_CREDENTIAL_TYPES_DIR", "/etc/credential-types")
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Credential.TypesDir != "/etc/credential-types" {
+		t.Fatalf("unexpected overridden TypesDir: %q", cfg.Credential.TypesDir)
+	}
+}

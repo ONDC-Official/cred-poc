@@ -44,10 +44,16 @@ func New() (*App, error) {
 	}
 
 	digioClient := setupClients(cfg)
-	identityService := setupIdentityService(digioClient)
+
+	registry, err := loadVerifierRegistry(cfg.Credential.TypesDir, digioClient)
+	if err != nil {
+		return nil, err
+	}
+
+	identityService := setupIdentityService(registry)
 
 	var credWorker *worker.CredentialWorker
-	credService, credHandler, cw, err := setupCredentialStack(db, digioClient, identityService, cfg.Credential.DefaultValidity)
+	credService, credHandler, cw, err := setupCredentialStack(db, registry, identityService, cfg.Credential.DefaultValidity)
 	if err != nil {
 		if db != nil {
 			return nil, fmt.Errorf("failed to setup credential stack: %w", err)

@@ -45,25 +45,9 @@ const (
 	IssuerMSME          = "MSME"
 )
 
-// IssuerForCredType maps a credential type to its real-world issuing
-// authority (per Credential Service Implementation Plan.md: "Issuer of the
-// credential (PAN: Income Tax Department)"). Digio never tells us this —
-// the doc's own TBD section flags it as a value we must assign ourselves.
-// Returns "" for any credential type without a known issuer.
-func IssuerForCredType(credType string) string {
-	switch credType {
-	case CredTypePAN:
-		return IssuerIncomeTaxDept
-	case CredTypeGST:
-		return IssuerGSTN
-	case CredTypeFSSAI:
-		return IssuerFSSAI
-	case CredTypeUdyam:
-		return IssuerMSME
-	default:
-		return ""
-	}
-}
+// Issuer constants remain for enum seeds / tests. Issuer mapping per
+// credential type now lives in configs/credential-types/*.yaml and is
+// resolved via credential.VerifierRegistry.IssuerFor.
 
 type EnumCache struct {
 	byID            map[uuid.UUID]*EnumType

@@ -28,7 +28,14 @@ func setupTestApp(t *testing.T, digioHandler http.HandlerFunc) *fiber.App {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	registry := credential.NewVerifierRegistry(digioClient)
+	dir, err := credential.FindDefinitionsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := credential.NewRegistryFromDir(dir, digioClient)
+	if err != nil {
+		t.Fatalf("NewRegistryFromDir: %v", err)
+	}
 	svc := service.NewIdentityService(registry)
 	h := bootstrap.NewHandlers(svc, nil)
 

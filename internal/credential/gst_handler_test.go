@@ -8,14 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"credential-service/internal/credential"
 	"credential-service/internal/service/client"
 )
 
 func TestGstHandlerValidateCredData(t *testing.T) {
 	t.Parallel()
 
-	handler := credential.NewGstHandler(nil)
+	handler := testVerifier(t, nil, "GST")
 
 	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"INVALID"}`)); err == nil {
 		t.Fatal("expected error for invalid GST format")
@@ -44,7 +43,7 @@ func TestGstHandlerProcessAttachesEvidences(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewGstHandler(digioClient)
+	handler := testVerifier(t, digioClient, "GST")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"29AABCU9603R1ZM"}`))
 	if err != nil {
@@ -76,7 +75,7 @@ func TestGstHandlerProcessAttachesEvidencesOnDigioRejection(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewGstHandler(digioClient)
+	handler := testVerifier(t, digioClient, "GST")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"29AABCU9603R1ZM"}`))
 	if err != nil {
