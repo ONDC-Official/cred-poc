@@ -8,9 +8,13 @@ normalization:
   trim: true
   uppercase: true
 validation:
-  patterns:
-    - "^UDYAM-[A-Z]{2}-\\d{2}-\\d{7}$"
-    - "^UDYAM[A-Z]{2}\\d{2}\\d{7}$"
+  fields:
+    id_no:
+      required: true
+      patterns:
+        - "^UDYAM-[A-Z]{2}-\\d{2}-\\d{7}$"
+        - "^UDYAM[A-Z]{2}\\d{2}\\d{7}$"
+      message: "invalid Udyam format, expected UDYAM-XX-00-0000000"
 request:
   transformer: udyam_canonicalize
 response:

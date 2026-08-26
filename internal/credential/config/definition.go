@@ -12,9 +12,6 @@ type Definition struct {
 	Validation     Validation     `yaml:"validation"`
 	Request        RequestConfig  `yaml:"request"`
 	Response       ResponseConfig `yaml:"response"`
-
-	// CompiledPatterns is filled by the loader (not YAML).
-	CompiledPatterns []*regexp.Regexp `yaml:"-"`
 }
 
 type ProviderConfig struct {
@@ -28,9 +25,20 @@ type Normalization struct {
 	RemoveChars string `yaml:"remove_chars"`
 }
 
+// Validation holds optional per-field rules. Fields not listed are not validated.
 type Validation struct {
-	Patterns       []string `yaml:"patterns"`
-	RequiredFields []string `yaml:"required_fields"`
+	Fields map[string]FieldValidation `yaml:"fields"`
+}
+
+// FieldValidation declares optional required / pattern checks for one cred_data key.
+type FieldValidation struct {
+	Required bool     `yaml:"required"`
+	Patterns []string `yaml:"patterns"`
+	// Message overrides the default "invalid <field> format" error text.
+	Message string `yaml:"message"`
+
+	// CompiledPatterns is filled by the loader (not YAML).
+	CompiledPatterns []*regexp.Regexp `yaml:"-"`
 }
 
 type RequestConfig struct {

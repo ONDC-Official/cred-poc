@@ -17,8 +17,8 @@ type VerifyIdentityRequest struct {
 	// ParticipantID string `json:"participant_id" validate:"required"`
 	CredID   string `json:"cred_id" validate:"required"`
 	CredType string `json:"cred_type" validate:"required"`
-	Name     string `json:"name" validate:"required_if=CredType PAN"`
-	Dob      string `json:"dob" validate:"required_if=CredType PAN"`
+	Name     string `json:"name,omitempty"`
+	Dob      string `json:"dob,omitempty"`
 }
 
 type IdentityHandler struct {

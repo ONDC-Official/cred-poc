@@ -1,6 +1,7 @@
 package credential_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,8 +55,11 @@ provider:
   name: digio
   endpoint: /v3/client/kyc/fetch_id_data/BAD
 validation:
-  patterns:
-    - "^X$"
+  fields:
+    id_no:
+      required: true
+      patterns:
+        - "^X$"
 request:
   fields:
     id_no: normalized_id
@@ -69,6 +73,102 @@ response:
 	_, err := credconfig.LoadDir(dir, credential.KnownRequestTransformerNames(), credential.KnownResponseTransformerNames())
 	if err == nil {
 		t.Fatal("expected error for unknown response transformer")
+	}
+}
+
+func TestLoadDirRejectsEmptyFieldRule(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "EMPTY.v1.yaml")
+	content := []byte(`
+credential_type: EMPTY
+version: 1
+issuer: MSME
+provider:
+  name: digio
+  endpoint: /v3/client/kyc/fetch_id_data/EMPTY
+validation:
+  fields:
+    name: {}
+request:
+  fields:
+    id_no: normalized_id
+response:
+  success_field: id
+`)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := credconfig.LoadDir(dir, credential.KnownRequestTransformerNames(), credential.KnownResponseTransformerNames())
+	if err == nil {
+		t.Fatal("expected error for empty field validation rule")
+	}
+}
+
+func TestFieldAlignedValidationAppliesToConfiguredFieldsOnly(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "NAMECHECK.v1.yaml")
+	content := []byte(`
+credential_type: NAMECHECK
+version: 1
+issuer: MSME
+provider:
+  name: digio
+  endpoint: /v3/client/kyc/fetch_id_data/NAMECHECK
+normalization:
+  trim: true
+  uppercase: true
+validation:
+  fields:
+    id_no:
+      required: true
+      patterns:
+        - "^[A-Z]{5}[0-9]{4}[A-Z]$"
+    name:
+      required: true
+      patterns:
+        - "^[A-Za-z ]+$"
+      message: "invalid name format"
+request:
+  fields:
+    id_no: normalized_id
+    name: name
+response:
+  success_field: pan
+`)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := credconfig.LoadDir(dir, credential.KnownRequestTransformerNames(), credential.KnownResponseTransformerNames())
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	def := catalog.Get("NAMECHECK")
+	if def == nil {
+		t.Fatal("missing NAMECHECK definition")
+	}
+
+	verifier, err := credential.NewVerifierFromDefinition(def, nil)
+	if err != nil {
+		t.Fatalf("NewVerifierFromDefinition: %v", err)
+	}
+
+	if err := verifier.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F","name":"John Doe"}`)); err != nil {
+		t.Fatalf("expected valid payload to pass: %v", err)
+	}
+	if err := verifier.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F"}`)); err == nil {
+		t.Fatal("expected missing required name to fail")
+	}
+	if err := verifier.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F","name":"John123"}`)); err == nil {
+		t.Fatal("expected invalid name pattern to fail")
+	}
+	if err := verifier.ValidateCredData(json.RawMessage(`{"id_no":"INVALID","name":"John Doe"}`)); err == nil {
+		t.Fatal("expected invalid id_no pattern to fail")
 	}
 }
 

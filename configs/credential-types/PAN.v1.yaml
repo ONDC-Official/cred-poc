@@ -8,16 +8,15 @@ normalization:
   trim: true
   uppercase: true
 validation:
-  patterns:
-    - "^[A-Z]{5}[0-9]{4}[A-Z]$"
-  required_fields:
-    - name
-    - dob
+  fields:
+    id_no:
+      required: true
+      patterns:
+        - "^[A-Z]{5}[0-9]{4}[A-Z]$"
+      message: "invalid PAN format"
 request:
   fields:
     id_no: normalized_id
-    name: name
-    dob: dob
 response:
   success_field: pan
   fields:

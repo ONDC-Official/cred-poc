@@ -6,7 +6,7 @@
 //	  -private-key 'BASE64...' \
 //	  -subscriber-id registry.local.test \
 //	  -ukid registry-key-1 \
-//	  -body '{"cred_id":"ABCDE1234F","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}'
+//	  -body '{"cred_id":"ABCDE1234F","cred_type":"PAN"}'
 package main
 
 import (

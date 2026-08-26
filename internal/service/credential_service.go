@@ -140,10 +140,9 @@ func (s *CredentialService) SubmitCredentials(req *dto.SubmitCredentialsRequest)
 }
 
 // buildCredData translates the flat wire-level request shape (cred_type,
-// cred_id, name, dob — per the design doc's Credential API) into the
-// internal per-type cred_data blob the credential handlers expect
-// ({"id_no", "name", "dob"} — see PanCredData/GstCredData). GST's handler
-// only reads id_no, so the unused name/dob keys are harmless there.
+// cred_id, optional name/dob) into the internal per-type cred_data blob the
+// credential handlers expect ({"id_no", "name", "dob"}). Digio request
+// builders only pull fields declared in each type's YAML (PAN/GST: id_no).
 func buildCredData(item dto.CredentialItem) (json.RawMessage, error) {
 	return json.Marshal(map[string]string{
 		"id_no": item.CredID,

@@ -10,12 +10,6 @@ import (
 	"credential-service/internal/service/client"
 )
 
-type credDataEnvelope struct {
-	IDNo string `json:"id_no"`
-	Name string `json:"name"`
-	Dob  string `json:"dob"`
-}
-
 // NewVerifierFromDefinition builds a DigioVerifier from a validated Definition.
 func NewVerifierFromDefinition(def *credconfig.Definition, digioClient *client.DigioClient) (Verifier, error) {
 	if def == nil {
@@ -52,41 +46,27 @@ func NewVerifierFromDefinition(def *credconfig.Definition, digioClient *client.D
 
 func makeValidateFn(def *credconfig.Definition) func(json.RawMessage) error {
 	return func(data json.RawMessage) error {
-		var d credDataEnvelope
-		if err := json.Unmarshal(data, &d); err != nil {
+		fields, err := parseCredDataFields(data)
+		if err != nil {
 			return fmt.Errorf("invalid %s cred_data: %w", def.CredentialType, err)
 		}
 
-		normalized := NormalizeID(d.IDNo, def.Normalization)
-		if !MatchesAnyPattern(normalized, def.CompiledPatterns) {
-			msg := fmt.Sprintf("invalid %s format", def.CredentialType)
-			switch def.CredentialType {
-			case "FSSAI":
-				msg = "invalid FSSAI format, expected 14 digits"
-			case "UDYAM":
-				msg = "invalid Udyam format, expected UDYAM-XX-00-0000000"
-			case "PAN":
-				msg = "invalid PAN format"
-			case "GST":
-				msg = "invalid GST format"
-			}
-			return fmt.Errorf("%w: %s", ErrInvalidCredID, msg)
-		}
+		for fieldName, rule := range def.Validation.Fields {
+			value := fieldValue(fields, fieldName, def)
 
-		for _, field := range def.Validation.RequiredFields {
-			switch field {
-			case "name":
-				if strings.TrimSpace(d.Name) == "" {
-					return fmt.Errorf("%s cred_data: name is required", def.CredentialType)
+			if rule.Required && value == "" {
+				return fmt.Errorf("%s cred_data: %s is required", def.CredentialType, fieldName)
+			}
+			// Optional fields with patterns: skip when empty.
+			if value == "" || len(rule.CompiledPatterns) == 0 {
+				continue
+			}
+			if !MatchesAnyPattern(value, rule.CompiledPatterns) {
+				msg := strings.TrimSpace(rule.Message)
+				if msg == "" {
+					msg = fmt.Sprintf("invalid %s format", fieldName)
 				}
-			case "dob":
-				if strings.TrimSpace(d.Dob) == "" {
-					return fmt.Errorf("%s cred_data: dob is required", def.CredentialType)
-				}
-			case "id_no":
-				// already validated via patterns
-			default:
-				return fmt.Errorf("%s cred_data: unsupported required field %q", def.CredentialType, field)
+				return fmt.Errorf("%w: %s", ErrInvalidCredID, msg)
 			}
 		}
 		return nil
@@ -95,11 +75,11 @@ func makeValidateFn(def *credconfig.Definition) func(json.RawMessage) error {
 
 func makeBuildRequestFn(def *credconfig.Definition, xform RequestTransformer) func(json.RawMessage) (any, error) {
 	return func(data json.RawMessage) (any, error) {
-		var d credDataEnvelope
-		if err := json.Unmarshal(data, &d); err != nil {
+		fields, err := parseCredDataFields(data)
+		if err != nil {
 			return nil, err
 		}
-		normalized := NormalizeID(d.IDNo, def.Normalization)
+		normalized := NormalizeID(fields["id_no"], def.Normalization)
 
 		if xform != nil {
 			return xform(data, normalized)
@@ -108,20 +88,36 @@ func makeBuildRequestFn(def *credconfig.Definition, xform RequestTransformer) fu
 		payload := make(map[string]string, len(def.Request.Fields))
 		for digioKey, source := range def.Request.Fields {
 			switch source {
-			case credconfig.FieldSourceNormalizedID:
-				payload[digioKey] = normalized
-			case "name":
-				payload[digioKey] = strings.TrimSpace(d.Name)
-			case "dob":
-				payload[digioKey] = strings.TrimSpace(d.Dob)
-			case "id_no":
+			case credconfig.FieldSourceNormalizedID, "id_no":
 				payload[digioKey] = normalized
 			default:
-				return nil, fmt.Errorf("unknown request field source %q", source)
+				// Any other source is read by cred_data key name (e.g. name, dob).
+				payload[digioKey] = strings.TrimSpace(fields[source])
 			}
 		}
 		return payload, nil
 	}
+}
+
+func parseCredDataFields(data json.RawMessage) (map[string]string, error) {
+	var fields map[string]string
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	if fields == nil {
+		fields = map[string]string{}
+	}
+	return fields, nil
+}
+
+// fieldValue returns the cred_data value for fieldName, applying definition
+// normalization only to id_no (the credential identifier).
+func fieldValue(fields map[string]string, fieldName string, def *credconfig.Definition) string {
+	raw := fields[fieldName]
+	if fieldName == "id_no" {
+		return NormalizeID(raw, def.Normalization)
+	}
+	return strings.TrimSpace(raw)
 }
 
 func makeParseResponseFn(def *credconfig.Definition, xform ResponseTransformer) func([]byte) (*VerificationResult, error) {

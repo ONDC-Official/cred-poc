@@ -133,19 +133,24 @@ func validateDefinition(def *Definition, knownReq, knownResp map[string]struct{}
 	if !strings.HasPrefix(def.Provider.Endpoint, "/") {
 		return fmt.Errorf("provider.endpoint must be a path starting with /")
 	}
-	if len(def.Validation.Patterns) == 0 {
-		return fmt.Errorf("validation.patterns must contain at least one regex")
-	}
-
-	compiled := make([]*regexp.Regexp, 0, len(def.Validation.Patterns))
-	for i, p := range def.Validation.Patterns {
-		re, err := regexp.Compile(p)
-		if err != nil {
-			return fmt.Errorf("validation.patterns[%d]: invalid regex: %w", i, err)
+	for fieldName, rule := range def.Validation.Fields {
+		if strings.TrimSpace(fieldName) == "" {
+			return fmt.Errorf("validation.fields: field name must not be empty")
 		}
-		compiled = append(compiled, re)
+		if !rule.Required && len(rule.Patterns) == 0 {
+			return fmt.Errorf("validation.fields.%s: must set required and/or patterns", fieldName)
+		}
+		compiled := make([]*regexp.Regexp, 0, len(rule.Patterns))
+		for i, p := range rule.Patterns {
+			re, err := regexp.Compile(p)
+			if err != nil {
+				return fmt.Errorf("validation.fields.%s.patterns[%d]: invalid regex: %w", fieldName, i, err)
+			}
+			compiled = append(compiled, re)
+		}
+		rule.CompiledPatterns = compiled
+		def.Validation.Fields[fieldName] = rule
 	}
-	def.CompiledPatterns = compiled
 
 	reqX := strings.TrimSpace(def.Request.Transformer)
 	if reqX != "" {

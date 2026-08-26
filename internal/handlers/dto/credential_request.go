@@ -10,13 +10,13 @@ type SubmitCredentialsRequest struct {
 }
 
 // CredentialItem matches the flat request shape from the design doc's
-// Credential API ("Request Parameters" tables): cred_type, cred_id, plus
-// name/dob for types that need them (PAN).
+// Credential API ("Request Parameters" tables): cred_type, cred_id.
+// name/dob are optional legacy fields and are not used for Digio PAN requests.
 type CredentialItem struct {
 	CredType string `json:"cred_type" validate:"required"`
 	CredID   string `json:"cred_id" validate:"required"`
-	Name     string `json:"name" validate:"required_if=CredType PAN"`
-	Dob      string `json:"dob" validate:"required_if=CredType PAN"`
+	Name     string `json:"name,omitempty"`
+	Dob      string `json:"dob,omitempty"`
 }
 
 type SubmitCredentialsResponse struct {

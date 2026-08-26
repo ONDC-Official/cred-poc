@@ -52,7 +52,7 @@ func TestIdentityServiceResolvesPAN(t *testing.T) {
 	defer closeServer()
 
 	svc := service.NewIdentityService(registry)
-	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F", "name": "John Doe", "dob": "01/01/1990"})
+	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F"})
 
 	result, err := svc.VerifyIdentity(context.Background(), "PAN", credData)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestIdentityServiceDigioRejectionReturnsFailureNotError(t *testing.T) {
 	defer closeServer()
 
 	svc := service.NewIdentityService(registry)
-	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F", "name": "John Doe", "dob": "01/01/1990"})
+	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F"})
 
 	result, err := svc.VerifyIdentity(context.Background(), "PAN", credData)
 	if err != nil {
@@ -171,7 +171,7 @@ func TestIdentityServiceInvalidFormatReturnsFailureNotError(t *testing.T) {
 	defer closeServer()
 
 	svc := service.NewIdentityService(registry)
-	credData, _ := json.Marshal(map[string]string{"id_no": "INVALID", "name": "John Doe", "dob": "01/01/1990"})
+	credData, _ := json.Marshal(map[string]string{"id_no": "INVALID"})
 
 	result, err := svc.VerifyIdentity(context.Background(), "PAN", credData)
 	if err != nil {
@@ -202,7 +202,7 @@ func TestIdentityServiceSuccessNonJSONBodyReturnsError(t *testing.T) {
 	defer closeServer()
 
 	svc := service.NewIdentityService(registry)
-	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F", "name": "John Doe", "dob": "01/01/1990"})
+	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F"})
 
 	if _, err := svc.VerifyIdentity(context.Background(), "PAN", credData); err == nil {
 		t.Fatal("expected an error when a 2xx Digio response body isn't valid JSON (parseResponseFn fails)")

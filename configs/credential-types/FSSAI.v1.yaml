@@ -8,8 +8,12 @@ normalization:
   trim: true
   remove_chars: " "
 validation:
-  patterns:
-    - "^\\d{14}$"
+  fields:
+    id_no:
+      required: true
+      patterns:
+        - "^\\d{14}$"
+      message: "invalid FSSAI format, expected 14 digits"
 request:
   fields:
     id_no: normalized_id

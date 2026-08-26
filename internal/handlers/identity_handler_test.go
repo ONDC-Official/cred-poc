@@ -53,7 +53,7 @@ func TestVerifyIdentityValidPAN(t *testing.T) {
 		_, _ = w.Write([]byte(`{"pan":"ABCDE1234F","category":"Individual","status":"VALID","full_name":"John Doe"}`))
 	})
 
-	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}`)
+	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
 	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -83,7 +83,7 @@ func TestVerifyIdentityPANDigioRejectionPassesThrough(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":"BAD_REQUEST","message":"Invalid Pan Number Detected"}`))
 	})
 
-	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}`)
+	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
 	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -116,7 +116,7 @@ func TestVerifyIdentityPANRejectionWithNonJSONBody502s(t *testing.T) {
 		_, _ = w.Write([]byte(`<html>not json</html>`))
 	})
 
-	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}`)
+	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
 	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -131,7 +131,7 @@ func TestVerifyIdentityPANRejectionWithNonJSONBody502s(t *testing.T) {
 	}
 }
 
-func TestVerifyIdentityPANForwardsNameDob(t *testing.T) {
+func TestVerifyIdentityPANSendsIDOnly(t *testing.T) {
 	t.Parallel()
 
 	var gotPayload map[string]string
@@ -143,7 +143,7 @@ func TestVerifyIdentityPANForwardsNameDob(t *testing.T) {
 		_, _ = w.Write([]byte(`{"pan":"ABCDE1234F","category":"Individual","status":"VALID","full_name":"John Doe"}`))
 	})
 
-	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}`)
+	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
 	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -157,35 +157,14 @@ func TestVerifyIdentityPANForwardsNameDob(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	if gotPayload["name"] != "John Doe" {
-		t.Fatalf("expected name to reach Digio, got %v", gotPayload)
+	if gotPayload["id_no"] != "ABCDE1234F" {
+		t.Fatalf("expected id_no to reach Digio, got %v", gotPayload)
 	}
-	if gotPayload["dob"] != "01/01/1990" {
-		t.Fatalf("expected dob to reach Digio, got %v", gotPayload)
+	if _, ok := gotPayload["name"]; ok {
+		t.Fatalf("name must not reach Digio, got %v", gotPayload)
 	}
-}
-
-func TestVerifyIdentityMissingNameForPAN(t *testing.T) {
-	t.Parallel()
-
-	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {})
-	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := app.Test(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
-	}
-
-	respBody, _ := io.ReadAll(resp.Body)
-	if !bytes.Contains(respBody, []byte("name")) {
-		t.Fatalf("expected name error, got %s", string(respBody))
+	if _, ok := gotPayload["dob"]; ok {
+		t.Fatalf("dob must not reach Digio, got %v", gotPayload)
 	}
 }
 
@@ -280,7 +259,7 @@ func TestVerifyIdentityInvalidPANFormat(t *testing.T) {
 	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("Digio should never be called for an invalid PAN format")
 	})
-	body := bytes.NewBufferString(`{"cred_id":"INVALID","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}`)
+	body := bytes.NewBufferString(`{"cred_id":"INVALID","cred_type":"PAN"}`)
 	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
 	req.Header.Set("Content-Type", "application/json")
 
