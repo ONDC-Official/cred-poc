@@ -13,12 +13,13 @@ import (
 	"credential-service/internal/service/client"
 )
 
-func newTestDigioVerifier(t *testing.T, digioClient *client.DigioClient, parseResponseFn func([]byte) (*credential.VerificationResult, error)) credential.Verifier {
+func newTestConfigVerifier(t *testing.T, digioClient *client.DigioClient, parseResponseFn func([]byte) (*credential.VerificationResult, error)) credential.Verifier {
 	t.Helper()
-	return credential.NewDigioVerifier(credential.DigioVerifierConfig{
-		Client:   digioClient,
-		Endpoint: "/test-endpoint",
+	return credential.NewConfigVerifier(credential.ConfigVerifierConfig{
 		CredType: "TEST",
+		Invoke: func(ctx context.Context, payload any) ([]byte, int, error) {
+			return digioClient.Call(ctx, http.MethodPost, "/test-endpoint", payload)
+		},
 		ValidateFn: func(json.RawMessage) error {
 			return nil
 		},
@@ -29,13 +30,15 @@ func newTestDigioVerifier(t *testing.T, digioClient *client.DigioClient, parseRe
 	})
 }
 
-func TestDigioVerifierProcessNoEvidencesOnValidationFailure(t *testing.T) {
+func TestConfigVerifierProcessNoEvidencesOnValidationFailure(t *testing.T) {
 	t.Parallel()
 
-	handler := credential.NewDigioVerifier(credential.DigioVerifierConfig{
-		Client:   nil,
-		Endpoint: "/test-endpoint",
+	handler := credential.NewConfigVerifier(credential.ConfigVerifierConfig{
 		CredType: "TEST",
+		Invoke: func(context.Context, any) ([]byte, int, error) {
+			t.Fatal("Invoke should not be called when validation fails")
+			return nil, 0, nil
+		},
 		ValidateFn: func(json.RawMessage) error {
 			return errors.New("always invalid")
 		},
@@ -57,11 +60,11 @@ func TestDigioVerifierProcessNoEvidencesOnValidationFailure(t *testing.T) {
 		t.Fatal("expected failure")
 	}
 	if len(result.Evidences) != 0 {
-		t.Fatalf("expected no evidences when validation fails before any Digio call, got: %+v", result.Evidences)
+		t.Fatalf("expected no evidences when validation fails before any provider call, got: %+v", result.Evidences)
 	}
 }
 
-func TestDigioVerifierProcessSuccessHasTwoEvidences(t *testing.T) {
+func TestConfigVerifierProcessSuccessHasTwoEvidences(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +78,7 @@ func TestDigioVerifierProcessSuccessHasTwoEvidences(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := newTestDigioVerifier(t, digioClient, func(body []byte) (*credential.VerificationResult, error) {
+	handler := newTestConfigVerifier(t, digioClient, func(body []byte) (*credential.VerificationResult, error) {
 		return &credential.VerificationResult{Success: true, CredID: "abc"}, nil
 	})
 
@@ -94,7 +97,7 @@ func TestDigioVerifierProcessSuccessHasTwoEvidences(t *testing.T) {
 	}
 }
 
-func TestDigioVerifierProcessDigioErrorHasTwoEvidences(t *testing.T) {
+func TestConfigVerifierProcessProviderErrorHasTwoEvidences(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,8 +111,8 @@ func TestDigioVerifierProcessDigioErrorHasTwoEvidences(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := newTestDigioVerifier(t, digioClient, func(body []byte) (*credential.VerificationResult, error) {
-		t.Fatal("ParseResponseFn should not be called on a Digio error status")
+	handler := newTestConfigVerifier(t, digioClient, func(body []byte) (*credential.VerificationResult, error) {
+		t.Fatal("ParseResponseFn should not be called on a provider error status")
 		return nil, nil
 	})
 
@@ -121,11 +124,11 @@ func TestDigioVerifierProcessDigioErrorHasTwoEvidences(t *testing.T) {
 		t.Fatal("expected failure")
 	}
 	if len(result.Evidences) != 2 {
-		t.Fatalf("expected 2 evidences even on a Digio-side error, got %d: %+v", len(result.Evidences), result.Evidences)
+		t.Fatalf("expected 2 evidences even on a provider-side error, got %d: %+v", len(result.Evidences), result.Evidences)
 	}
 }
 
-func TestDigioVerifierProcessParseErrorReturnsNoResult(t *testing.T) {
+func TestConfigVerifierProcessParseErrorReturnsNoResult(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +142,7 @@ func TestDigioVerifierProcessParseErrorReturnsNoResult(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := newTestDigioVerifier(t, digioClient, func(body []byte) (*credential.VerificationResult, error) {
+	handler := newTestConfigVerifier(t, digioClient, func(body []byte) (*credential.VerificationResult, error) {
 		return nil, errors.New("parse failed")
 	})
 

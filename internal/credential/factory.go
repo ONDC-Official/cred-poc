@@ -1,19 +1,26 @@
 package credential
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 
 	credconfig "credential-service/internal/credential/config"
-	"credential-service/internal/service/client"
+	"credential-service/internal/provider"
 )
 
-// NewVerifierFromDefinition builds a DigioVerifier from a validated Definition.
-func NewVerifierFromDefinition(def *credconfig.Definition, digioClient *client.DigioClient) (Verifier, error) {
+// NewVerifierFromDefinition builds a ConfigVerifier from a validated Definition.
+func NewVerifierFromDefinition(def *credconfig.Definition, gateway *provider.Gateway) (Verifier, error) {
 	if def == nil {
 		return nil, fmt.Errorf("definition is nil")
+	}
+	if gateway == nil {
+		return nil, fmt.Errorf("provider gateway is required")
+	}
+	if err := gateway.EnsureCapability(def.Provider.Name, def.Provider.Capability); err != nil {
+		return nil, err
 	}
 
 	var reqXform RequestTransformer
@@ -34,10 +41,15 @@ func NewVerifierFromDefinition(def *credconfig.Definition, digioClient *client.D
 		respXform = fn
 	}
 
-	return NewDigioVerifier(DigioVerifierConfig{
-		Client:          digioClient,
-		Endpoint:        def.Provider.Endpoint,
+	providerName := def.Provider.Name
+	capability := def.Provider.Capability
+	invoke := func(ctx context.Context, payload any) ([]byte, int, error) {
+		return gateway.Invoke(ctx, providerName, capability, payload)
+	}
+
+	return NewConfigVerifier(ConfigVerifierConfig{
 		CredType:        def.CredentialType,
+		Invoke:          invoke,
 		ValidateFn:      makeValidateFn(def),
 		BuildRequestFn:  makeBuildRequestFn(def, reqXform),
 		ParseResponseFn: makeParseResponseFn(def, respXform),
@@ -86,13 +98,13 @@ func makeBuildRequestFn(def *credconfig.Definition, xform RequestTransformer) fu
 		}
 
 		payload := make(map[string]string, len(def.Request.Fields))
-		for digioKey, source := range def.Request.Fields {
+		for providerKey, source := range def.Request.Fields {
 			switch source {
 			case credconfig.FieldSourceNormalizedID, "id_no":
-				payload[digioKey] = normalized
+				payload[providerKey] = normalized
 			default:
 				// Any other source is read by cred_data key name (e.g. name, dob).
-				payload[digioKey] = strings.TrimSpace(fields[source])
+				payload[providerKey] = strings.TrimSpace(fields[source])
 			}
 		}
 		return payload, nil
@@ -139,8 +151,8 @@ func makeParseResponseFn(def *credconfig.Definition, xform ResponseTransformer) 
 		}
 
 		verified := make(map[string]any, len(def.Response.Fields))
-		for digioKey, outKey := range def.Response.Fields {
-			verified[outKey] = raw[digioKey]
+		for providerKey, outKey := range def.Response.Fields {
+			verified[outKey] = raw[providerKey]
 		}
 
 		credID := ""

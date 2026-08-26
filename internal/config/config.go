@@ -46,6 +46,8 @@ type CredentialConfig struct {
 	DefaultValidity time.Duration `envconfig:"DEFAULT_VALIDITY" default:"8760h"`
 	// TypesDir is the filesystem path to Git-tracked credential-type YAML definitions.
 	TypesDir string `envconfig:"TYPES_DIR" default:"configs/credential-types"`
+	// ProvidersDir is the filesystem path to Git-tracked provider capability catalogs.
+	ProvidersDir string `envconfig:"PROVIDERS_DIR" default:"configs/providers"`
 }
 
 // AuthConfig secures credential-service APIs for registry-service → credential-service calls.

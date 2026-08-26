@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	credconfig "credential-service/internal/credential/config"
-	"credential-service/internal/service/client"
+	"credential-service/internal/provider"
 )
 
 type VerifierRegistry struct {
@@ -13,14 +13,17 @@ type VerifierRegistry struct {
 }
 
 // NewVerifierRegistry builds a registry from a loaded credential-type catalog.
-func NewVerifierRegistry(digioClient *client.DigioClient, catalog *credconfig.Catalog) (*VerifierRegistry, error) {
+func NewVerifierRegistry(gateway *provider.Gateway, catalog *credconfig.Catalog) (*VerifierRegistry, error) {
 	if catalog == nil {
 		return nil, fmt.Errorf("credential type catalog is required")
+	}
+	if gateway == nil {
+		return nil, fmt.Errorf("provider gateway is required")
 	}
 
 	verifiers := make(map[string]Verifier, len(catalog.All()))
 	for _, def := range catalog.All() {
-		v, err := NewVerifierFromDefinition(def, digioClient)
+		v, err := NewVerifierFromDefinition(def, gateway)
 		if err != nil {
 			return nil, fmt.Errorf("build verifier for %s: %w", def.CredentialType, err)
 		}

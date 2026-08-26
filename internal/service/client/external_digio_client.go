@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// DigioClient is the Digio KYC HTTP adapter. It implements provider.Caller.
 type DigioClient struct {
 	baseURL    string
 	token      string
@@ -33,14 +34,20 @@ func NewDigioClient(cfg DigioConfig) *DigioClient {
 	}
 }
 
-func (c *DigioClient) Post(ctx context.Context, path string, payload any) ([]byte, int, error) {
+// Call performs an authenticated Digio HTTP request. method is typically POST.
+func (c *DigioClient) Call(ctx context.Context, method, path string, payload any) ([]byte, int, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to encode request: %w", err)
 	}
 
+	method = strings.ToUpper(strings.TrimSpace(method))
+	if method == "" {
+		method = http.MethodPost
+	}
+
 	url := c.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -60,4 +67,9 @@ func (c *DigioClient) Post(ctx context.Context, path string, payload any) ([]byt
 	}
 
 	return respBody, resp.StatusCode, nil
+}
+
+// Post is a convenience wrapper for Call with POST.
+func (c *DigioClient) Post(ctx context.Context, path string, payload any) ([]byte, int, error) {
+	return c.Call(ctx, http.MethodPost, path, payload)
 }

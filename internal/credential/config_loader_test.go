@@ -53,7 +53,7 @@ version: 1
 issuer: MSME
 provider:
   name: digio
-  endpoint: /v3/client/kyc/fetch_id_data/BAD
+  capability: fetch_id_data_pan
 validation:
   fields:
     id_no:
@@ -87,7 +87,7 @@ version: 1
 issuer: MSME
 provider:
   name: digio
-  endpoint: /v3/client/kyc/fetch_id_data/EMPTY
+  capability: fetch_id_data_pan
 validation:
   fields:
     name: {}
@@ -118,7 +118,7 @@ version: 1
 issuer: MSME
 provider:
   name: digio
-  endpoint: /v3/client/kyc/fetch_id_data/NAMECHECK
+  capability: fetch_id_data_pan
 normalization:
   trim: true
   uppercase: true
@@ -153,7 +153,7 @@ response:
 		t.Fatal("missing NAMECHECK definition")
 	}
 
-	verifier, err := credential.NewVerifierFromDefinition(def, nil)
+	verifier, err := credential.NewVerifierFromDefinition(def, testGateway(t, nil))
 	if err != nil {
 		t.Fatalf("NewVerifierFromDefinition: %v", err)
 	}

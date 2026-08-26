@@ -6,15 +6,28 @@ import (
 
 	"credential-service/internal/auth"
 	"credential-service/internal/config"
+	"credential-service/internal/provider"
 	"credential-service/internal/service/client"
 )
 
-func setupClients(cfg *config.Config) *client.DigioClient {
-	return client.NewDigioClient(client.DigioConfig{
+func setupProviderGateway(cfg *config.Config) (*provider.Gateway, error) {
+	digioClient := client.NewDigioClient(client.DigioConfig{
 		BaseURL: cfg.Digio.BaseURL,
 		Token:   cfg.Digio.Token,
 		Timeout: cfg.Digio.Timeout,
 	})
+
+	// Register each vendor Caller under the same name as configs/providers/*.yaml.
+	// Future providers: add YAML + implement Caller + register here.
+	callers := map[string]provider.Caller{
+		"digio": digioClient,
+	}
+
+	catalog, err := provider.LoadDir(cfg.Credential.ProvidersDir)
+	if err != nil {
+		return nil, fmt.Errorf("load provider definitions from %q: %w", cfg.Credential.ProvidersDir, err)
+	}
+	return provider.NewGateway(catalog, callers)
 }
 
 func setupAuthVerifier(cfg *config.Config) (*auth.Verifier, error) {

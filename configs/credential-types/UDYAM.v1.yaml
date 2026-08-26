@@ -3,7 +3,7 @@ version: 1
 issuer: MSME
 provider:
   name: digio
-  endpoint: /client/v4/apis/kyc/fetch_id_data/UDYAMAADHAAR
+  capability: fetch_id_data_udyam
 normalization:
   trim: true
   uppercase: true

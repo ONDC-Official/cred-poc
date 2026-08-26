@@ -3,7 +3,7 @@ version: 1
 issuer: INCOME_TAX_DEPT
 provider:
   name: digio
-  endpoint: /v3/client/kyc/fetch_id_data/PAN
+  capability: fetch_id_data_pan
 normalization:
   trim: true
   uppercase: true

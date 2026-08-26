@@ -43,9 +43,12 @@ func New() (*App, error) {
 		return nil, fmt.Errorf("failed to setup database: %w", err)
 	}
 
-	digioClient := setupClients(cfg)
+	gateway, err := setupProviderGateway(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup provider gateway: %w", err)
+	}
 
-	registry, err := loadVerifierRegistry(cfg.Credential.TypesDir, digioClient)
+	registry, err := loadVerifierRegistry(cfg.Credential.TypesDir, gateway)
 	if err != nil {
 		return nil, err
 	}

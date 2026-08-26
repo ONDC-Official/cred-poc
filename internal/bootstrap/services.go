@@ -7,9 +7,9 @@ import (
 	"credential-service/internal/credential"
 	"credential-service/internal/handlers"
 	"credential-service/internal/models"
+	"credential-service/internal/provider"
 	"credential-service/internal/repository"
 	"credential-service/internal/service"
-	"credential-service/internal/service/client"
 	"credential-service/internal/worker"
 
 	"gorm.io/gorm"
@@ -19,13 +19,13 @@ func setupIdentityService(registry *credential.VerifierRegistry) *service.Identi
 	return service.NewIdentityService(registry)
 }
 
-// loadVerifierRegistry loads YAML credential-type definitions and builds the Digio verifier registry.
-func loadVerifierRegistry(typesDir string, digioClient *client.DigioClient) (*credential.VerifierRegistry, error) {
+// loadVerifierRegistry loads YAML credential-type definitions and builds the verifier registry.
+func loadVerifierRegistry(typesDir string, gateway *provider.Gateway) (*credential.VerifierRegistry, error) {
 	catalog, err := credential.LoadCatalog(typesDir)
 	if err != nil {
 		return nil, fmt.Errorf("load credential type definitions from %q: %w", typesDir, err)
 	}
-	registry, err := credential.NewVerifierRegistry(digioClient, catalog)
+	registry, err := credential.NewVerifierRegistry(gateway, catalog)
 	if err != nil {
 		return nil, fmt.Errorf("build verifier registry: %w", err)
 	}

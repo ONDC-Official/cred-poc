@@ -124,14 +124,8 @@ func validateDefinition(def *Definition, knownReq, knownResp map[string]struct{}
 	if strings.TrimSpace(def.Provider.Name) == "" {
 		return fmt.Errorf("provider.name is required")
 	}
-	if strings.ToLower(def.Provider.Name) != "digio" {
-		return fmt.Errorf("provider.name %q is unsupported (only digio)", def.Provider.Name)
-	}
-	if strings.TrimSpace(def.Provider.Endpoint) == "" {
-		return fmt.Errorf("provider.endpoint is required")
-	}
-	if !strings.HasPrefix(def.Provider.Endpoint, "/") {
-		return fmt.Errorf("provider.endpoint must be a path starting with /")
+	if strings.TrimSpace(def.Provider.Capability) == "" {
+		return fmt.Errorf("provider.capability is required")
 	}
 	for fieldName, rule := range def.Validation.Fields {
 		if strings.TrimSpace(fieldName) == "" {

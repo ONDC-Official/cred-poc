@@ -14,9 +14,11 @@ type Definition struct {
 	Response       ResponseConfig `yaml:"response"`
 }
 
+// ProviderConfig selects a runtime provider + named capability from
+// configs/providers. Paths and methods live in the provider catalog, not here.
 type ProviderConfig struct {
-	Name     string `yaml:"name"`
-	Endpoint string `yaml:"endpoint"`
+	Name       string `yaml:"name"`
+	Capability string `yaml:"capability"`
 }
 
 type Normalization struct {

@@ -3,7 +3,7 @@ version: 1
 issuer: GSTN
 provider:
   name: digio
-  endpoint: /v3/client/kyc/fetch_id_data/GST
+  capability: fetch_id_data_gst
 normalization:
   trim: true
   uppercase: true

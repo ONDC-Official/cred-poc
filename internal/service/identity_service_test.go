@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"credential-service/internal/credential"
+	"credential-service/internal/provider"
 	"credential-service/internal/service"
 	"credential-service/internal/service/client"
 )
@@ -31,11 +32,21 @@ func newTestRegistry(t *testing.T, digioHandler http.HandlerFunc) (*credential.V
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	dir, err := credential.FindDefinitionsDir()
+	typesDir, err := credential.FindDefinitionsDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := credential.NewRegistryFromDir(dir, digioClient)
+	providersDir, err := credential.FindProvidersDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := credential.NewGatewayFromProvidersDir(providersDir, map[string]provider.Caller{
+		"digio": digioClient,
+	})
+	if err != nil {
+		t.Fatalf("NewGatewayFromProvidersDir: %v", err)
+	}
+	registry, err := credential.NewRegistryFromDir(typesDir, gateway)
 	if err != nil {
 		t.Fatalf("NewRegistryFromDir: %v", err)
 	}
