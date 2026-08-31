@@ -3,19 +3,20 @@ package dto
 import "encoding/json"
 
 type SubmitCredentialsRequest struct {
-	Credentials []CredentialItem `json:"credentials" validate:"required,min=1,dive"`
+	// ParticipantID is the onboarded NP id from the registry service DB.
+	// Registry calls credential-service on behalf of this participant; NPs never call directly.
+	ParticipantID string           `json:"participant_id" validate:"required"`
+	Credentials   []CredentialItem `json:"credentials" validate:"required,min=1,dive"`
 }
 
 // CredentialItem matches the flat request shape from the design doc's
-// Credential API ("Request Parameters" tables): cred_type, cred_id, plus
-// name/dob for types that need them (PAN). participant_id/domain are
-// intentionally omitted (Phase 2 of docs/IMPLEMENTATION_ROADMAP.md, not
-// implemented yet).
+// Credential API ("Request Parameters" tables): cred_type, cred_id.
+// name/dob are optional legacy fields and are not used for Digio PAN requests.
 type CredentialItem struct {
 	CredType string `json:"cred_type" validate:"required"`
 	CredID   string `json:"cred_id" validate:"required"`
-	Name     string `json:"name" validate:"required_if=CredType PAN"`
-	Dob      string `json:"dob" validate:"required_if=CredType PAN"`
+	Name     string `json:"name,omitempty"`
+	Dob      string `json:"dob,omitempty"`
 }
 
 type SubmitCredentialsResponse struct {
@@ -40,6 +41,7 @@ type CredentialResultItem struct {
 	CredType           string          `json:"cred_type"`
 	CredID             string          `json:"cred_id"`
 	Status             string          `json:"status"`
-	DigioResponse      json.RawMessage `json:"digio_response,omitempty"`
+	Provider           string          `json:"provider,omitempty"`
+	ProviderResponse   json.RawMessage `json:"provider_response,omitempty"`
 	VerificationErrors json.RawMessage `json:"verification_errors,omitempty"`
 }

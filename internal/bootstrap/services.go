@@ -7,20 +7,37 @@ import (
 	"credential-service/internal/credential"
 	"credential-service/internal/handlers"
 	"credential-service/internal/models"
+	"credential-service/internal/provider"
 	"credential-service/internal/repository"
 	"credential-service/internal/service"
-	"credential-service/internal/service/client"
 	"credential-service/internal/worker"
 
 	"gorm.io/gorm"
 )
 
-func setupIdentityService(digioClient *client.DigioClient) *service.IdentityService {
-	registry := credential.NewVerifierRegistry(digioClient)
+func setupIdentityService(registry *credential.VerifierRegistry) *service.IdentityService {
 	return service.NewIdentityService(registry)
 }
 
-func setupCredentialStack(db *gorm.DB, digioClient *client.DigioClient, identityService *service.IdentityService, defaultValidity time.Duration) (*service.CredentialService, *handlers.CredentialHandler, *worker.CredentialWorker, error) {
+// loadVerifierRegistry loads YAML credential-type definitions and builds the verifier registry.
+func loadVerifierRegistry(typesDir string, gateway *provider.Gateway) (*credential.VerifierRegistry, error) {
+	catalog, err := credential.LoadCatalog(typesDir)
+	if err != nil {
+		return nil, fmt.Errorf("load credential type definitions from %q: %w", typesDir, err)
+	}
+	registry, err := credential.NewVerifierRegistry(gateway, catalog)
+	if err != nil {
+		return nil, fmt.Errorf("build verifier registry: %w", err)
+	}
+	return registry, nil
+}
+
+func setupCredentialStack(
+	db *gorm.DB,
+	registry *credential.VerifierRegistry,
+	identityService *service.IdentityService,
+	defaultValidity time.Duration,
+) (*service.CredentialService, *handlers.CredentialHandler, *worker.CredentialWorker, error) {
 	if db == nil {
 		return nil, nil, nil, fmt.Errorf("database required for credential stack")
 	}
@@ -32,7 +49,6 @@ func setupCredentialStack(db *gorm.DB, digioClient *client.DigioClient, identity
 
 	credReqRepo := repository.NewCredentialRequestRepository(db)
 	credRepo := repository.NewCredentialRepository(db)
-	registry := credential.NewVerifierRegistry(digioClient)
 
 	credService := service.NewCredentialService(credReqRepo, credRepo, registry, identityService, enumCache, defaultValidity)
 	credHandler := handlers.NewCredentialHandler(credService)

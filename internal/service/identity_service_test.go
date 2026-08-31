@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"credential-service/internal/credential"
+	"credential-service/internal/provider"
 	"credential-service/internal/service"
 	"credential-service/internal/service/client"
 )
@@ -31,7 +32,26 @@ func newTestRegistry(t *testing.T, digioHandler http.HandlerFunc) (*credential.V
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	return credential.NewVerifierRegistry(digioClient), server.Close
+	typesDir, err := credential.FindDefinitionsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	providersDir, err := credential.FindProvidersDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := credential.NewGatewayFromProvidersDir(providersDir, map[string]provider.Caller{
+		"digio": digioClient,
+		"mock":  client.NewMockClient(),
+	})
+	if err != nil {
+		t.Fatalf("NewGatewayFromProvidersDir: %v", err)
+	}
+	registry, err := credential.NewRegistryFromDir(typesDir, gateway)
+	if err != nil {
+		t.Fatalf("NewRegistryFromDir: %v", err)
+	}
+	return registry, server.Close
 }
 
 func TestIdentityServiceResolvesPAN(t *testing.T) {
@@ -44,7 +64,7 @@ func TestIdentityServiceResolvesPAN(t *testing.T) {
 	defer closeServer()
 
 	svc := service.NewIdentityService(registry)
-	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F", "name": "John Doe", "dob": "01/01/1990"})
+	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F"})
 
 	result, err := svc.VerifyIdentity(context.Background(), "PAN", credData)
 	if err != nil {
@@ -132,17 +152,20 @@ func TestIdentityServiceResolvesUDYAM(t *testing.T) {
 func TestIdentityServiceDigioRejectionReturnsFailureNotError(t *testing.T) {
 	t.Parallel()
 
+	// GST has a single provider (no fallback), so a Digio-side rejection
+	// isn't masked by a fallback success — PAN's fallback-to-mock behavior
+	// is covered separately in TestIdentityServicePANFallsBackToMock.
 	registry, closeServer := newTestRegistry(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"code":"BAD_REQUEST","message":"Invalid Pan Number Detected"}`))
+		_, _ = w.Write([]byte(`{"code":"BAD_REQUEST","message":"Invalid GSTIN"}`))
 	})
 	defer closeServer()
 
 	svc := service.NewIdentityService(registry)
-	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F", "name": "John Doe", "dob": "01/01/1990"})
+	credData, _ := json.Marshal(map[string]string{"id_no": "29AABCU9603R1ZM"})
 
-	result, err := svc.VerifyIdentity(context.Background(), "PAN", credData)
+	result, err := svc.VerifyIdentity(context.Background(), "GST", credData)
 	if err != nil {
 		t.Fatalf("expected a Digio-side rejection to surface as Success:false, not a Go error, got: %v", err)
 	}
@@ -154,16 +177,38 @@ func TestIdentityServiceDigioRejectionReturnsFailureNotError(t *testing.T) {
 	}
 }
 
-func TestIdentityServiceInvalidFormatReturnsFailureNotError(t *testing.T) {
+func TestIdentityServicePANFallsBackToMockOnDigioRejection(t *testing.T) {
 	t.Parallel()
 
 	registry, closeServer := newTestRegistry(t, func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("Digio should never be called for an invalid PAN format")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":"BAD_REQUEST","message":"Invalid Pan Number Detected"}`))
 	})
 	defer closeServer()
 
 	svc := service.NewIdentityService(registry)
-	credData, _ := json.Marshal(map[string]string{"id_no": "INVALID", "name": "John Doe", "dob": "01/01/1990"})
+	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F"})
+
+	result, err := svc.VerifyIdentity(context.Background(), "PAN", credData)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success || result.Provider != "mock" {
+		t.Fatalf("expected the mock fallback provider to succeed after Digio's rejection, got: %+v", result)
+	}
+}
+
+func TestIdentityServiceMissingRequiredFieldReturnsFailureNotError(t *testing.T) {
+	t.Parallel()
+
+	registry, closeServer := newTestRegistry(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("no provider should be called when a required field is missing")
+	})
+	defer closeServer()
+
+	svc := service.NewIdentityService(registry)
+	credData, _ := json.Marshal(map[string]string{"id_no": ""})
 
 	result, err := svc.VerifyIdentity(context.Background(), "PAN", credData)
 	if err != nil {
@@ -173,7 +218,35 @@ func TestIdentityServiceInvalidFormatReturnsFailureNotError(t *testing.T) {
 		t.Fatalf("expected failure, got: %+v", result)
 	}
 	if len(result.Evidences) != 0 {
-		t.Fatalf("expected no evidences (no Digio call was made), got %d", len(result.Evidences))
+		t.Fatalf("expected no evidences (no provider call was made), got %d", len(result.Evidences))
+	}
+}
+
+func TestIdentityServiceFormatInvalidButPresentIDPassesValidation(t *testing.T) {
+	t.Parallel()
+
+	// Regex validation was removed — a format-invalid but present id_no now
+	// reaches the provider instead of being rejected before any call.
+	called := false
+	registry, closeServer := newTestRegistry(t, func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"pan":"INVALID","category":"Individual","status":"VALID","full_name":"John Doe"}`))
+	})
+	defer closeServer()
+
+	svc := service.NewIdentityService(registry)
+	credData, _ := json.Marshal(map[string]string{"id_no": "INVALID"})
+
+	result, err := svc.VerifyIdentity(context.Background(), "PAN", credData)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected the provider to be called now that regex validation is removed")
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %+v", result)
 	}
 }
 
@@ -194,7 +267,7 @@ func TestIdentityServiceSuccessNonJSONBodyReturnsError(t *testing.T) {
 	defer closeServer()
 
 	svc := service.NewIdentityService(registry)
-	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F", "name": "John Doe", "dob": "01/01/1990"})
+	credData, _ := json.Marshal(map[string]string{"id_no": "ABCDE1234F"})
 
 	if _, err := svc.VerifyIdentity(context.Background(), "PAN", credData); err == nil {
 		t.Fatal("expected an error when a 2xx Digio response body isn't valid JSON (parseResponseFn fails)")

@@ -2,10 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"sort"
+	"strings"
 	"time"
 
 	"credential-service/internal/credential"
@@ -84,66 +88,128 @@ func (s *CredentialService) SubmitCredentials(req *dto.SubmitCredentialsRequest)
 		credDataByItem[i] = credData
 	}
 
-	requestID := uuid.New()
 	pendingID := s.enumCache.VerificationStatusID(models.VerificationPending)
-	verifierID := s.enumCache.VerifierID(models.VerifierDigio)
+	payloadHash := computePayloadHash(req.ParticipantID, req.Credentials)
 
-	var records []models.CredentialRequest
-	for i, item := range req.Credentials {
-		credTypeID := s.enumCache.CredTypeID(item.CredType)
+	// build constructs a fresh set of records for this submission. It only
+	// runs if CreateManyIfNotInFlight determines no identical, still-PENDING
+	// submission exists for this participant_id — see its doc comment.
+	build := func() []models.CredentialRequest {
+		requestID := uuid.New()
+		records := make([]models.CredentialRequest, 0, len(req.Credentials))
+		for i, item := range req.Credentials {
+			credTypeID := s.enumCache.CredTypeID(item.CredType)
 
-		var issuer *uuid.UUID
-		if v := models.IssuerForCredType(item.CredType); v != "" {
-			id := s.enumCache.IssuerID(v)
-			issuer = &id
+			var issuer *uuid.UUID
+			if v := s.registry.IssuerFor(item.CredType); v != "" {
+				id := s.enumCache.IssuerID(v)
+				issuer = &id
+			}
+
+			records = append(records, models.CredentialRequest{
+				ID:                 uuid.New(),
+				RequestID:          requestID,
+				ParticipantID:      req.ParticipantID,
+				PayloadHash:        payloadHash,
+				CredType:           credTypeID,
+				VerificationStatus: pendingID,
+				RetryCount:         0,
+				MaxRetries:         3,
+				CredData:           credDataByItem[i],
+				Issuer:             issuer,
+			})
 		}
-
-		rec := models.CredentialRequest{
-			ID:                 uuid.New(),
-			RequestID:          requestID,
-			CredType:           credTypeID,
-			VerificationStatus: pendingID,
-			RetryCount:         0,
-			MaxRetries:         3,
-			CredData:           credDataByItem[i],
-			Issuer:             issuer,
-			Verifier:           &verifierID,
-		}
-		records = append(records, rec)
+		return records
 	}
 
-	if err := s.credReqRepo.CreateMany(records); err != nil {
+	records, reused, err := s.credReqRepo.CreateManyIfNotInFlight(req.ParticipantID, payloadHash, pendingID, build)
+	if err != nil {
 		return nil, fmt.Errorf("failed to persist credential requests: %w", err)
 	}
 
-	for _, rec := range records {
-		select {
-		case s.jobCh <- rec.ID:
-		default:
-			log.Printf("warning: job channel full, credential request %s may be delayed", rec.ID)
+	if reused {
+		log.Printf("credential request for participant %s reused in-flight request %s (duplicate payload)", req.ParticipantID, records[0].RequestID)
+	} else {
+		for _, rec := range records {
+			select {
+			case s.jobCh <- rec.ID:
+			default:
+				log.Printf("warning: job channel full, credential request %s may be delayed", rec.ID)
+			}
 		}
 	}
 
 	resp := &dto.SubmitCredentialsResponse{
-		RequestID: requestID.String(),
-	}
-	for i, rec := range records {
-		resp.Credentials = append(resp.Credentials, dto.CredentialItemResponse{
-			ID:       rec.ID.String(),
-			CredType: req.Credentials[i].CredType,
-			CredID:   req.Credentials[i].CredID,
-			Status:   models.VerificationPending,
-		})
+		RequestID:   records[0].RequestID.String(),
+		Credentials: buildSubmitCredentialItems(records, s.enumCache),
 	}
 
 	return resp, nil
 }
 
+// computePayloadHash fingerprints a /credential submission (participant_id +
+// the full credentials payload) so CreateManyIfNotInFlight can detect a
+// duplicate submission before it resolves. Credentials are sorted first so
+// re-ordering the same set of items doesn't defeat dedup.
+func computePayloadHash(participantID string, credentials []dto.CredentialItem) string {
+	sorted := make([]dto.CredentialItem, len(credentials))
+	copy(sorted, credentials)
+	sort.Slice(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		if a.CredType != b.CredType {
+			return a.CredType < b.CredType
+		}
+		if a.CredID != b.CredID {
+			return a.CredID < b.CredID
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.Dob < b.Dob
+	})
+
+	payload := struct {
+		ParticipantID string               `json:"participant_id"`
+		Credentials   []dto.CredentialItem `json:"credentials"`
+	}{ParticipantID: participantID, Credentials: sorted}
+
+	// Marshal cannot fail here: payload is built entirely of strings/slices.
+	data, _ := json.Marshal(payload)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// buildSubmitCredentialItems maps persisted CredentialRequest rows onto the
+// POST /credential response shape. Used for both newly created rows and
+// rows reused from an in-flight duplicate submission, so the response
+// always reflects the actual stored records.
+func buildSubmitCredentialItems(records []models.CredentialRequest, enumCache *models.EnumCache) []dto.CredentialItemResponse {
+	items := make([]dto.CredentialItemResponse, 0, len(records))
+	for _, rec := range records {
+		item := dto.CredentialItemResponse{ID: rec.ID.String()}
+		if et := enumCache.Get(rec.CredType); et != nil {
+			item.CredType = et.Value
+		}
+		if et := enumCache.Get(rec.VerificationStatus); et != nil {
+			item.Status = et.Value
+		}
+
+		var storedCredData struct {
+			IDNo string `json:"id_no"`
+		}
+		if err := json.Unmarshal(rec.CredData, &storedCredData); err == nil {
+			item.CredID = storedCredData.IDNo
+		}
+
+		items = append(items, item)
+	}
+	return items
+}
+
 // buildCredData translates the flat wire-level request shape (cred_type,
-// cred_id, name, dob — per the design doc's Credential API) into the
-// internal per-type cred_data blob the credential handlers expect
-// ({"id_no", "name", "dob"} — see PanCredData/GstCredData). GST's handler
-// only reads id_no, so the unused name/dob keys are harmless there.
+// cred_id, optional name/dob) into the internal per-type cred_data blob the
+// credential handlers expect ({"id_no", "name", "dob"}). Digio request
+// builders only pull fields declared in each type's YAML (PAN/GST: id_no).
 func buildCredData(item dto.CredentialItem) (json.RawMessage, error) {
 	return json.Marshal(map[string]string{
 		"id_no": item.CredID,
@@ -175,14 +241,29 @@ func (s *CredentialService) ProcessCredentialRequest(ctx context.Context, reqID 
 	return s.handleVerificationSuccess(credReq, result)
 }
 
+// verifierIDFromProvider resolves the CRED_VERIFIER enum row for the
+// provider that produced a VerificationResult, so credential_requests.verifier
+// reflects whichever provider actually ran (not a hardcoded default) —
+// nil when no provider was ever invoked (e.g. a pre-provider validation
+// failure).
+func (s *CredentialService) verifierIDFromProvider(providerName string) *uuid.UUID {
+	if providerName == "" {
+		return nil
+	}
+	id := s.enumCache.VerifierID(strings.ToUpper(providerName))
+	return &id
+}
+
 func (s *CredentialService) handleVerificationSuccess(credReq *models.CredentialRequest, result *credential.VerificationResult) error {
 	verifiedID := s.enumCache.VerificationStatusID(models.VerificationVerified)
+	verifierID := s.verifierIDFromProvider(result.Provider)
+	credReq.Verifier = verifierID
 
 	evidencesJSON, err := json.Marshal(result.Evidences)
 	if err != nil {
 		return fmt.Errorf("marshal evidences: %w", err)
 	}
-	if err := s.credReqRepo.UpdateVerificationResult(credReq.ID, verifiedID, evidencesJSON); err != nil {
+	if err := s.credReqRepo.UpdateVerificationResult(credReq.ID, verifiedID, verifierID, evidencesJSON); err != nil {
 		return fmt.Errorf("update verification result: %w", err)
 	}
 
@@ -224,6 +305,7 @@ func buildVerifiedCredential(credReq *models.CredentialRequest, result *credenti
 
 func (s *CredentialService) handleVerificationFailure(credReq *models.CredentialRequest, result *credential.VerificationResult) error {
 	failedID := s.enumCache.VerificationStatusID(models.VerificationFailed)
+	verifierID := s.verifierIDFromProvider(result.Provider)
 
 	errJSON, _ := json.Marshal(map[string]string{"error": result.Error})
 
@@ -233,7 +315,7 @@ func (s *CredentialService) handleVerificationFailure(credReq *models.Credential
 			log.Printf("error recording retry for %s: %v", credReq.ID, err)
 		}
 		pendingID := s.enumCache.VerificationStatusID(models.VerificationPending)
-		if err := s.credReqRepo.RecordFailure(credReq.ID, pendingID, errJSON); err != nil {
+		if err := s.credReqRepo.RecordFailure(credReq.ID, pendingID, verifierID, errJSON); err != nil {
 			return fmt.Errorf("record retry failure: %w", err)
 		}
 		log.Printf("credential request %s scheduled for retry (%d/%d)", credReq.ID, credReq.RetryCount+1, credReq.MaxRetries)
@@ -246,7 +328,7 @@ func (s *CredentialService) handleVerificationFailure(credReq *models.Credential
 		return nil
 	}
 
-	if err := s.credReqRepo.RecordFailure(credReq.ID, failedID, errJSON); err != nil {
+	if err := s.credReqRepo.RecordFailure(credReq.ID, failedID, verifierID, errJSON); err != nil {
 		return fmt.Errorf("record final failure: %w", err)
 	}
 	log.Printf("credential request %s failed permanently", credReq.ID)
@@ -257,7 +339,7 @@ func (s *CredentialService) handleProcessingError(credReq *models.CredentialRequ
 	failedID := s.enumCache.VerificationStatusID(models.VerificationFailed)
 	errJSON, _ := json.Marshal(map[string]string{"error": processErr.Error()})
 
-	if err := s.credReqRepo.RecordFailure(credReq.ID, failedID, errJSON); err != nil {
+	if err := s.credReqRepo.RecordFailure(credReq.ID, failedID, nil, errJSON); err != nil {
 		return fmt.Errorf("record processing error: %w", err)
 	}
 	log.Printf("credential request %s processing error: %v", credReq.ID, processErr)
@@ -265,8 +347,9 @@ func (s *CredentialService) handleProcessingError(credReq *models.CredentialRequ
 }
 
 // GetResults returns the per-credential results of a previously submitted
-// /credential request, including Digio's raw response once processed.
-func (s *CredentialService) GetResults(requestID uuid.UUID) (*dto.GetCredentialResultsResponse, error) {
+// /credential request. The provider's raw response is only included when
+// verbose is true.
+func (s *CredentialService) GetResults(requestID uuid.UUID, verbose bool) (*dto.GetCredentialResultsResponse, error) {
 	records, err := s.credReqRepo.FindByRequestID(requestID)
 	if err != nil {
 		return nil, fmt.Errorf("find credential requests: %w", err)
@@ -277,7 +360,7 @@ func (s *CredentialService) GetResults(requestID uuid.UUID) (*dto.GetCredentialR
 
 	return &dto.GetCredentialResultsResponse{
 		RequestID:   requestID.String(),
-		Credentials: buildCredentialResultItems(records, s.enumCache),
+		Credentials: buildCredentialResultItems(records, s.enumCache, verbose),
 	}, nil
 }
 
@@ -293,7 +376,8 @@ type storedEvidence struct {
 // buildCredentialResultItems maps persisted CredentialRequest rows onto the
 // GET /credential response shape. Pulled out as a pure function (no DB
 // access) so it can be unit-tested directly — see credential_service_test.go.
-func buildCredentialResultItems(records []models.CredentialRequest, enumCache *models.EnumCache) []dto.CredentialResultItem {
+// The provider's raw response is only attached when verbose is true.
+func buildCredentialResultItems(records []models.CredentialRequest, enumCache *models.EnumCache, verbose bool) []dto.CredentialResultItem {
 	items := make([]dto.CredentialResultItem, 0, len(records))
 	for _, rec := range records {
 		item := dto.CredentialResultItem{ID: rec.ID.String()}
@@ -304,6 +388,11 @@ func buildCredentialResultItems(records []models.CredentialRequest, enumCache *m
 		if et := enumCache.Get(rec.VerificationStatus); et != nil {
 			item.Status = et.Value
 		}
+		if rec.Verifier != nil {
+			if et := enumCache.Get(*rec.Verifier); et != nil {
+				item.Provider = et.Value
+			}
+		}
 
 		var storedCredData struct {
 			IDNo string `json:"id_no"`
@@ -312,18 +401,20 @@ func buildCredentialResultItems(records []models.CredentialRequest, enumCache *m
 			item.CredID = storedCredData.IDNo
 		}
 
-		if rec.Evidences != nil {
+		var hasResponseEvidence bool
+		if verbose && rec.Evidences != nil {
 			var entries []storedEvidence
 			if err := json.Unmarshal(*rec.Evidences, &entries); err == nil {
 				for _, e := range entries {
 					if e.Type == "response" {
-						item.DigioResponse = e.Data
+						item.ProviderResponse = e.Data
+						hasResponseEvidence = true
 						break
 					}
 				}
 			}
 		}
-		if item.DigioResponse == nil && rec.VerificationErrors != nil {
+		if !hasResponseEvidence && rec.VerificationErrors != nil {
 			item.VerificationErrors = *rec.VerificationErrors
 		}
 

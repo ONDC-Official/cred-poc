@@ -1,0 +1,18 @@
+credential_type: GST
+version: 1
+issuer: GSTN
+providers:
+  - name: digio
+    capability: fetch_id_data_gst
+normalization:
+  trim: true
+  uppercase: true
+validation:
+  fields:
+    id_no:
+      required: true
+request:
+  fields:
+    id_no: normalized_id
+response:
+  transformer: gst_parse

@@ -43,11 +43,20 @@ func New() (*App, error) {
 		return nil, fmt.Errorf("failed to setup database: %w", err)
 	}
 
-	digioClient := setupClients(cfg)
-	identityService := setupIdentityService(digioClient)
+	gateway, err := setupProviderGateway(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup provider gateway: %w", err)
+	}
+
+	registry, err := loadVerifierRegistry(cfg.Credential.TypesDir, gateway)
+	if err != nil {
+		return nil, err
+	}
+
+	identityService := setupIdentityService(registry)
 
 	var credWorker *worker.CredentialWorker
-	credService, credHandler, cw, err := setupCredentialStack(db, digioClient, identityService, cfg.Credential.DefaultValidity)
+	credService, credHandler, cw, err := setupCredentialStack(db, registry, identityService, cfg.Credential.DefaultValidity)
 	if err != nil {
 		if db != nil {
 			return nil, fmt.Errorf("failed to setup credential stack: %w", err)
@@ -59,13 +68,17 @@ func New() (*App, error) {
 	}
 
 	handlers := NewHandlers(identityService, credHandler)
+	authVerifier, err := setupAuthVerifier(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup auth verifier: %w", err)
+	}
 
 	fiberApp := fiber.New(fiber.Config{
 		AppName: fmt.Sprintf("%s (%s)", cfg.App.Name, cfg.App.Env),
 	})
 
 	registerMiddleware(fiberApp)
-	registerRoutes(fiberApp, handlers)
+	registerRoutes(fiberApp, handlers, authVerifier)
 
 	return &App{
 		cfg:    cfg,

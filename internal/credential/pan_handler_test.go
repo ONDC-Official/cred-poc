@@ -9,29 +9,28 @@ import (
 	"testing"
 	"time"
 
-	"credential-service/internal/credential"
 	"credential-service/internal/service/client"
 )
 
-func TestPanHandlerValidateCredDataRequiresNameDob(t *testing.T) {
+func TestPanHandlerValidateCredDataIDOnly(t *testing.T) {
 	t.Parallel()
 
-	handler := credential.NewPanHandler(nil)
+	handler := testVerifier(t, nil, "PAN")
 
-	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F"}`)); err == nil {
-		t.Fatal("expected error for cred_data missing name/dob")
+	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F"}`)); err != nil {
+		t.Fatalf("unexpected error for id-only cred_data: %v", err)
 	}
 
-	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F","name":"John Doe"}`)); err == nil {
-		t.Fatal("expected error for cred_data missing dob")
+	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"not-a-real-pan-format"}`)); err != nil {
+		t.Fatalf("expected a format-invalid but present id_no to pass now that regex validation is removed: %v", err)
 	}
 
-	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F","name":"John Doe","dob":"01/01/1990"}`)); err != nil {
-		t.Fatalf("unexpected error for complete cred_data: %v", err)
+	if err := handler.ValidateCredData(json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected error for missing required id_no")
 	}
 }
 
-func TestPanHandlerProcessSendsNameDobToDigio(t *testing.T) {
+func TestPanHandlerProcessSendsIDOnlyToDigio(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,11 +44,11 @@ func TestPanHandlerProcessSendsNameDobToDigio(t *testing.T) {
 		if payload["id_no"] != "ABCDE1234F" {
 			t.Fatalf("unexpected id_no: %v", payload)
 		}
-		if payload["name"] != "John Doe" {
-			t.Fatalf("unexpected name: %v", payload)
+		if _, ok := payload["name"]; ok {
+			t.Fatalf("name must not be sent to Digio: %v", payload)
 		}
-		if payload["dob"] != "01/01/1990" {
-			t.Fatalf("unexpected dob: %v", payload)
+		if _, ok := payload["dob"]; ok {
+			t.Fatalf("dob must not be sent to Digio: %v", payload)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -62,9 +61,9 @@ func TestPanHandlerProcessSendsNameDobToDigio(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewPanHandler(digioClient)
+	handler := testVerifier(t, digioClient, "PAN")
 
-	credData := json.RawMessage(`{"id_no":"ABCDE1234F","name":"John Doe","dob":"01/01/1990"}`)
+	credData := json.RawMessage(`{"id_no":"ABCDE1234F"}`)
 	result, err := handler.Process(context.Background(), credData)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -89,8 +88,14 @@ func TestPanHandlerProcessSendsNameDobToDigio(t *testing.T) {
 	if err := json.Unmarshal(requestBytes, &requestPayload); err != nil {
 		t.Fatalf("request evidence is not valid JSON: %v", err)
 	}
-	if requestPayload["id_no"] != "ABCDE1234F" || requestPayload["name"] != "John Doe" || requestPayload["dob"] != "01/01/1990" {
-		t.Fatalf("expected request evidence to be the exact payload sent to Digio, got: %v", requestPayload)
+	if requestPayload["id_no"] != "ABCDE1234F" {
+		t.Fatalf("expected request evidence id_no only, got: %v", requestPayload)
+	}
+	if _, ok := requestPayload["name"]; ok {
+		t.Fatalf("request evidence must not include name: %v", requestPayload)
+	}
+	if _, ok := requestPayload["dob"]; ok {
+		t.Fatalf("request evidence must not include dob: %v", requestPayload)
 	}
 
 	responseBytes, err := json.Marshal(result.Evidences[1].Data)
@@ -106,7 +111,7 @@ func TestPanHandlerProcessSendsNameDobToDigio(t *testing.T) {
 	}
 }
 
-func TestPanHandlerProcessAttachesEvidencesOnDigioRejection(t *testing.T) {
+func TestPanHandlerProcessFallsBackToMockOnDigioRejection(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,16 +126,21 @@ func TestPanHandlerProcessAttachesEvidencesOnDigioRejection(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewPanHandler(digioClient)
+	// PAN.v1.yaml lists digio then mock — a Digio rejection should fall
+	// through to the mock provider, end to end, and succeed via it.
+	handler := testVerifierWithRealMock(t, digioClient, "PAN")
 
-	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"ABCDE1234F","name":"John Doe","dob":"01/01/1990"}`))
+	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"ABCDE1234F"}`))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Success {
-		t.Fatalf("expected failure for a Digio 400 response, got: %+v", result)
+	if !result.Success {
+		t.Fatalf("expected the mock fallback provider to succeed after Digio's rejection, got: %+v", result)
+	}
+	if result.Provider != "mock" {
+		t.Fatalf("expected Provider to be %q, got %q", "mock", result.Provider)
 	}
 	if len(result.Evidences) != 2 {
-		t.Fatalf("expected evidences even on a Digio-side rejection, got %d: %+v", len(result.Evidences), result.Evidences)
+		t.Fatalf("expected evidences from the final (mock) attempt, got %d: %+v", len(result.Evidences), result.Evidences)
 	}
 }

@@ -61,6 +61,64 @@ func TestBuildCredDataGSTIgnoresEmptyNameDob(t *testing.T) {
 	}
 }
 
+// computePayloadHash is the fingerprint SubmitCredentials uses to detect a
+// duplicate in-flight submission (same participant_id + same credentials)
+// before creating new credential_requests rows/jobs for it.
+
+func TestComputePayloadHashSameInputSameHash(t *testing.T) {
+	t.Parallel()
+
+	credentials := []dto.CredentialItem{
+		{CredType: models.CredTypePAN, CredID: "ABCDE1234F", Name: "John Doe", Dob: "01/01/1990"},
+	}
+
+	h1 := computePayloadHash("pid-1", credentials)
+	h2 := computePayloadHash("pid-1", credentials)
+	if h1 != h2 {
+		t.Fatalf("expected identical inputs to hash the same, got %q vs %q", h1, h2)
+	}
+}
+
+func TestComputePayloadHashIgnoresCredentialOrder(t *testing.T) {
+	t.Parallel()
+
+	a := []dto.CredentialItem{
+		{CredType: models.CredTypePAN, CredID: "ABCDE1234F"},
+		{CredType: models.CredTypeGST, CredID: "29AABCU9603R1ZM"},
+	}
+	b := []dto.CredentialItem{
+		{CredType: models.CredTypeGST, CredID: "29AABCU9603R1ZM"},
+		{CredType: models.CredTypePAN, CredID: "ABCDE1234F"},
+	}
+
+	if computePayloadHash("pid-1", a) != computePayloadHash("pid-1", b) {
+		t.Fatal("expected reordering the same set of credentials to produce the same hash")
+	}
+}
+
+func TestComputePayloadHashDiffersByParticipant(t *testing.T) {
+	t.Parallel()
+
+	credentials := []dto.CredentialItem{
+		{CredType: models.CredTypePAN, CredID: "ABCDE1234F"},
+	}
+
+	if computePayloadHash("pid-1", credentials) == computePayloadHash("pid-2", credentials) {
+		t.Fatal("expected different participant_id to produce a different hash")
+	}
+}
+
+func TestComputePayloadHashDiffersByCredentials(t *testing.T) {
+	t.Parallel()
+
+	a := []dto.CredentialItem{{CredType: models.CredTypePAN, CredID: "ABCDE1234F"}}
+	b := []dto.CredentialItem{{CredType: models.CredTypePAN, CredID: "ZZZZZ9999Z"}}
+
+	if computePayloadHash("pid-1", a) == computePayloadHash("pid-1", b) {
+		t.Fatal("expected different credentials to produce a different hash")
+	}
+}
+
 // buildVerifiedCredential is the mapping logic behind Phase 3 (populating the
 // Credential Registry on successful verification). It's tested directly here
 // because CredentialService.handleVerificationSuccess also calls
@@ -200,10 +258,24 @@ func newTestEnumCache() (*models.EnumCache, uuid.UUID, uuid.UUID, uuid.UUID) {
 	return cache, panTypeID, verifiedID, pendingID
 }
 
-func TestBuildCredentialResultItemsExtractsDigioResponse(t *testing.T) {
+func newTestEnumCacheWithVerifier() (cache *models.EnumCache, panTypeID, verifiedID, pendingID, digioVerifierID uuid.UUID) {
+	panTypeID = uuid.New()
+	verifiedID = uuid.New()
+	pendingID = uuid.New()
+	digioVerifierID = uuid.New()
+	cache = models.NewEnumCache([]models.EnumType{
+		{ID: panTypeID, Category: models.CategoryCredType, Value: models.CredTypePAN},
+		{ID: verifiedID, Category: models.CategoryCredVerification, Value: models.VerificationVerified},
+		{ID: pendingID, Category: models.CategoryCredVerification, Value: models.VerificationPending},
+		{ID: digioVerifierID, Category: models.CategoryCredVerifier, Value: models.VerifierDigio},
+	})
+	return cache, panTypeID, verifiedID, pendingID, digioVerifierID
+}
+
+func TestBuildCredentialResultItemsExtractsProviderResponseWhenVerbose(t *testing.T) {
 	t.Parallel()
 
-	cache, panTypeID, verifiedID, _ := newTestEnumCache()
+	cache, panTypeID, verifiedID, _, verifierID := newTestEnumCacheWithVerifier()
 
 	evidences := json.RawMessage(`[
 		{"type":"request","data":{"id_no":"ABCDE1234F"}},
@@ -213,11 +285,12 @@ func TestBuildCredentialResultItemsExtractsDigioResponse(t *testing.T) {
 		ID:                 uuid.New(),
 		CredType:           panTypeID,
 		VerificationStatus: verifiedID,
+		Verifier:           &verifierID,
 		CredData:           json.RawMessage(`{"id_no":"ABCDE1234F","name":"John Doe","dob":"01/01/1990"}`),
 		Evidences:          &evidences,
 	}
 
-	items := buildCredentialResultItems([]models.CredentialRequest{rec}, cache)
+	items := buildCredentialResultItems([]models.CredentialRequest{rec}, cache, true)
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
@@ -231,18 +304,52 @@ func TestBuildCredentialResultItemsExtractsDigioResponse(t *testing.T) {
 	if item.Status != models.VerificationVerified {
 		t.Fatalf("expected Status to resolve to its enum value, got %q", item.Status)
 	}
-	if item.DigioResponse == nil {
-		t.Fatal("expected DigioResponse to be populated from the evidences' response entry")
+	if item.Provider != models.VerifierDigio {
+		t.Fatalf("expected Provider to resolve from the Verifier enum FK, got %q", item.Provider)
 	}
-	var digioResponse map[string]any
-	if err := json.Unmarshal(item.DigioResponse, &digioResponse); err != nil {
-		t.Fatalf("DigioResponse is not valid JSON: %v", err)
+	if item.ProviderResponse == nil {
+		t.Fatal("expected ProviderResponse to be populated from the evidences' response entry when verbose")
 	}
-	if digioResponse["pan"] != "ABCDE1234F" || digioResponse["status"] != "VALID" {
-		t.Fatalf("expected DigioResponse to be the exact response evidence, got: %v", digioResponse)
+	var providerResponse map[string]any
+	if err := json.Unmarshal(item.ProviderResponse, &providerResponse); err != nil {
+		t.Fatalf("ProviderResponse is not valid JSON: %v", err)
+	}
+	if providerResponse["pan"] != "ABCDE1234F" || providerResponse["status"] != "VALID" {
+		t.Fatalf("expected ProviderResponse to be the exact response evidence, got: %v", providerResponse)
 	}
 	if item.VerificationErrors != nil {
 		t.Fatalf("expected no VerificationErrors when a response was recorded, got: %s", item.VerificationErrors)
+	}
+}
+
+func TestBuildCredentialResultItemsOmitsProviderResponseWhenNotVerbose(t *testing.T) {
+	t.Parallel()
+
+	cache, panTypeID, verifiedID, _, verifierID := newTestEnumCacheWithVerifier()
+
+	evidences := json.RawMessage(`[
+		{"type":"request","data":{"id_no":"ABCDE1234F"}},
+		{"type":"response","data":{"pan":"ABCDE1234F","status":"VALID"}}
+	]`)
+	rec := models.CredentialRequest{
+		ID:                 uuid.New(),
+		CredType:           panTypeID,
+		VerificationStatus: verifiedID,
+		Verifier:           &verifierID,
+		CredData:           json.RawMessage(`{"id_no":"ABCDE1234F"}`),
+		Evidences:          &evidences,
+	}
+
+	items := buildCredentialResultItems([]models.CredentialRequest{rec}, cache, false)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	item := items[0]
+	if item.ProviderResponse != nil {
+		t.Fatalf("expected ProviderResponse to be omitted when not verbose, got: %s", item.ProviderResponse)
+	}
+	if item.Provider != models.VerifierDigio {
+		t.Fatalf("expected Provider to still be populated regardless of verbose, got %q", item.Provider)
 	}
 }
 
@@ -260,7 +367,7 @@ func TestBuildCredentialResultItemsFallsBackToVerificationErrors(t *testing.T) {
 		VerificationErrors: &verificationErrors,
 	}
 
-	items := buildCredentialResultItems([]models.CredentialRequest{rec}, cache)
+	items := buildCredentialResultItems([]models.CredentialRequest{rec}, cache, true)
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
@@ -268,8 +375,8 @@ func TestBuildCredentialResultItemsFallsBackToVerificationErrors(t *testing.T) {
 	if item.CredID != "ABCDE1234F" {
 		t.Fatalf("expected CredID to be extracted from stored cred_data even on failure, got %q", item.CredID)
 	}
-	if item.DigioResponse != nil {
-		t.Fatalf("expected no DigioResponse when no evidences were ever recorded, got: %s", item.DigioResponse)
+	if item.ProviderResponse != nil {
+		t.Fatalf("expected no ProviderResponse when no evidences were ever recorded, got: %s", item.ProviderResponse)
 	}
 	if item.VerificationErrors == nil {
 		t.Fatal("expected VerificationErrors to be surfaced as a fallback")
@@ -293,7 +400,7 @@ func TestBuildCredentialResultItemsUnknownEnumIDDoesNotPanic(t *testing.T) {
 		VerificationStatus: uuid.New(),
 	}
 
-	items := buildCredentialResultItems([]models.CredentialRequest{rec}, cache)
+	items := buildCredentialResultItems([]models.CredentialRequest{rec}, cache, true)
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}

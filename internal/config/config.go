@@ -11,6 +11,7 @@ type Config struct {
 	DB         DBConfig
 	Digio      DigioConfig
 	Credential CredentialConfig
+	Auth       AuthConfig
 }
 
 type AppConfig struct {
@@ -43,6 +44,27 @@ type DigioConfig struct {
 // docs/IMPLEMENTATION_ROADMAP.md Phase 3.
 type CredentialConfig struct {
 	DefaultValidity time.Duration `envconfig:"DEFAULT_VALIDITY" default:"8760h"`
+	// TypesDir is the filesystem path to Git-tracked credential-type YAML definitions.
+	TypesDir string `envconfig:"TYPES_DIR" default:"configs/credential-types"`
+	// ProvidersDir is the filesystem path to Git-tracked provider capability catalogs.
+	ProvidersDir string `envconfig:"PROVIDERS_DIR" default:"configs/providers"`
+}
+
+// AuthConfig secures credential-service APIs for registry-service → credential-service calls.
+// NPs never call these endpoints; the registry signs with its Ed25519 private key and this
+// service verifies with the registry's public key (CREDENTIAL_SERVICE_AUTH_*).
+type AuthConfig struct {
+	Enabled bool `envconfig:"ENABLED" default:"false"`
+	// RegistrySigningPublicKey is the registry service Ed25519 public key (base64).
+	RegistrySigningPublicKey string `envconfig:"REGISTRY_SIGNING_PUBLIC_KEY"`
+	// Optional: pin Authorization keyId to the known registry identity.
+	RegistrySubscriberID string `envconfig:"REGISTRY_SUBSCRIBER_ID"`
+	RegistryUniqueKeyID  string `envconfig:"REGISTRY_UNIQUE_KEY_ID"`
+	// Optional: this service's own signing keypair for future outbound calls to registry.
+	SigningPrivate string `envconfig:"SIGNING_PRIVATE"`
+	SigningPublic  string `envconfig:"SIGNING_PUBLIC"`
+	SubscriberID   string `envconfig:"SUBSCRIBER_ID"`
+	UniqueKeyID    string `envconfig:"UNIQUE_KEY_ID"`
 }
 
 func Load() (*Config, error) {

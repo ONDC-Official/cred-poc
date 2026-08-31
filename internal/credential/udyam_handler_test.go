@@ -9,17 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"credential-service/internal/credential"
 	"credential-service/internal/service/client"
 )
 
 func TestUdyamHandlerValidateCredData(t *testing.T) {
 	t.Parallel()
 
-	handler := credential.NewUdyamHandler(nil)
+	handler := testVerifier(t, nil, "UDYAM")
 
-	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"INVALID"}`)); err == nil {
-		t.Fatal("expected error for invalid Udyam format")
+	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"INVALID"}`)); err != nil {
+		t.Fatalf("expected a format-invalid but present id_no to pass now that regex validation is removed: %v", err)
 	}
 
 	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"UDYAM-MH-01-1234567"}`)); err != nil {
@@ -28,6 +27,10 @@ func TestUdyamHandlerValidateCredData(t *testing.T) {
 
 	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"UDYAMMH011234567"}`)); err != nil {
 		t.Fatalf("unexpected error for valid compact Udyam cred_data: %v", err)
+	}
+
+	if err := handler.ValidateCredData(json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected error for missing required id_no")
 	}
 }
 
@@ -52,7 +55,7 @@ func TestUdyamHandlerProcessNormalizesCompactFormToHyphenated(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewUdyamHandler(digioClient)
+	handler := testVerifier(t, digioClient, "UDYAM")
 
 	_, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"udyammh011234567"}`))
 	if err != nil {
@@ -63,7 +66,6 @@ func TestUdyamHandlerProcessNormalizesCompactFormToHyphenated(t *testing.T) {
 	}
 }
 
-// Fixture lifted from team_pipeline_2807.py's verify_udyam() docstring/comments.
 func TestUdyamHandlerProcessAttachesEvidences(t *testing.T) {
 	t.Parallel()
 
@@ -88,7 +90,7 @@ func TestUdyamHandlerProcessAttachesEvidences(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewUdyamHandler(digioClient)
+	handler := testVerifier(t, digioClient, "UDYAM")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"UDYAM-MH-01-1234567"}`))
 	if err != nil {
@@ -111,8 +113,6 @@ func TestUdyamHandlerProcessAttachesEvidences(t *testing.T) {
 	}
 }
 
-// Digio is known to flap on this endpoint: a 200 with no UAN for a still-valid
-// number. This must come back as a soft failure (retryable), not a Go error.
 func TestUdyamHandlerProcessEmptyUANIsSoftFailure(t *testing.T) {
 	t.Parallel()
 
@@ -127,7 +127,7 @@ func TestUdyamHandlerProcessEmptyUANIsSoftFailure(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewUdyamHandler(digioClient)
+	handler := testVerifier(t, digioClient, "UDYAM")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"UDYAM-MH-01-1234567"}`))
 	if err != nil {
@@ -156,7 +156,7 @@ func TestUdyamHandlerProcessAttachesEvidencesOnDigioRejection(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := credential.NewUdyamHandler(digioClient)
+	handler := testVerifier(t, digioClient, "UDYAM")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"UDYAM-MH-01-1234567"}`))
 	if err != nil {

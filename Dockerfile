@@ -21,6 +21,7 @@ RUN apk add --no-cache ca-certificates tzdata wget \
 WORKDIR /app
 
 COPY --from=builder /out/credential-service /usr/local/bin/credential-service
+COPY --from=builder /src/configs /app/configs
 
 EXPOSE 8080
 

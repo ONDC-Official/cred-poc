@@ -7,10 +7,9 @@ import (
 	"credential-service/internal/utils"
 )
 
-// Proves the flat CredentialItem shape's required_if=CredType PAN tag
-// behaves correctly per-element when validated inside a dive'd slice —
-// notably the mixed-batch case, where one PAN item's missing dob must fail
-// validation without a GST item in the same batch masking it (or vice versa).
+// Proves the flat CredentialItem shape validates per-element when inside a
+// dive'd slice — notably the mixed-batch case, where one invalid item must
+// fail without a valid sibling masking it (or vice versa).
 func TestSubmitCredentialsRequestValidation(t *testing.T) {
 	t.Parallel()
 
@@ -20,19 +19,11 @@ func TestSubmitCredentialsRequestValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "PAN requires name and dob",
+			name: "PAN with cred_id only is valid",
 			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
 				Credentials: []dto.CredentialItem{
 					{CredType: "PAN", CredID: "ABCDE1234F"},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "PAN with name and dob is valid",
-			req: dto.SubmitCredentialsRequest{
-				Credentials: []dto.CredentialItem{
-					{CredType: "PAN", CredID: "ABCDE1234F", Name: "John Doe", Dob: "01/01/1990"},
 				},
 			},
 			wantErr: false,
@@ -40,6 +31,7 @@ func TestSubmitCredentialsRequestValidation(t *testing.T) {
 		{
 			name: "GST does not require name/dob",
 			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
 				Credentials: []dto.CredentialItem{
 					{CredType: "GST", CredID: "29AABCU9603R1ZM"},
 				},
@@ -49,6 +41,7 @@ func TestSubmitCredentialsRequestValidation(t *testing.T) {
 		{
 			name: "missing cred_id",
 			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
 				Credentials: []dto.CredentialItem{
 					{CredType: "GST"},
 				},
@@ -56,24 +49,35 @@ func TestSubmitCredentialsRequestValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "mixed batch: one PAN item missing dob fails the whole request",
+			name: "missing participant_id",
 			req: dto.SubmitCredentialsRequest{
 				Credentials: []dto.CredentialItem{
 					{CredType: "GST", CredID: "29AABCU9603R1ZM"},
-					{CredType: "PAN", CredID: "ABCDE1234F", Name: "John Doe"},
 				},
 			},
 			wantErr: true,
 		},
 		{
-			name: "mixed batch: both valid",
+			name: "mixed batch: both valid with id-only items",
 			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
 				Credentials: []dto.CredentialItem{
 					{CredType: "GST", CredID: "29AABCU9603R1ZM"},
-					{CredType: "PAN", CredID: "ABCDE1234F", Name: "John Doe", Dob: "01/01/1990"},
+					{CredType: "PAN", CredID: "ABCDE1234F"},
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "mixed batch: one missing cred_id fails the whole request",
+			req: dto.SubmitCredentialsRequest{
+				ParticipantID: "pid-1",
+				Credentials: []dto.CredentialItem{
+					{CredType: "GST", CredID: "29AABCU9603R1ZM"},
+					{CredType: "PAN"},
+				},
+			},
+			wantErr: true,
 		},
 	}
 

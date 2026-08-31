@@ -1,0 +1,17 @@
+credential_type: UDYAM
+version: 1
+issuer: MSME
+providers:
+  - name: digio
+    capability: fetch_id_data_udyam
+normalization:
+  trim: true
+  uppercase: true
+validation:
+  fields:
+    id_no:
+      required: true
+request:
+  transformer: udyam_canonicalize
+response:
+  transformer: udyam_parse

@@ -1,0 +1,18 @@
+credential_type: FSSAI
+version: 1
+issuer: FSSAI_AUTHORITY
+providers:
+  - name: digio
+    capability: fetch_id_data_fssai
+normalization:
+  trim: true
+  remove_chars: " "
+validation:
+  fields:
+    id_no:
+      required: true
+request:
+  fields:
+    id_no: normalized_id
+response:
+  transformer: fssai_parse

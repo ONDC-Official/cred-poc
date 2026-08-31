@@ -11,6 +11,7 @@ import (
 
 	"credential-service/internal/bootstrap"
 	"credential-service/internal/credential"
+	"credential-service/internal/provider"
 	"credential-service/internal/service"
 	"credential-service/internal/service/client"
 
@@ -28,12 +29,30 @@ func setupTestApp(t *testing.T, digioHandler http.HandlerFunc) *fiber.App {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	registry := credential.NewVerifierRegistry(digioClient)
+	typesDir, err := credential.FindDefinitionsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	providersDir, err := credential.FindProvidersDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := credential.NewGatewayFromProvidersDir(providersDir, map[string]provider.Caller{
+		"digio": digioClient,
+		"mock":  client.NewMockClient(),
+	})
+	if err != nil {
+		t.Fatalf("NewGatewayFromProvidersDir: %v", err)
+	}
+	registry, err := credential.NewRegistryFromDir(typesDir, gateway)
+	if err != nil {
+		t.Fatalf("NewRegistryFromDir: %v", err)
+	}
 	svc := service.NewIdentityService(registry)
 	h := bootstrap.NewHandlers(svc, nil)
 
 	app := fiber.New()
-	bootstrap.RegisterRoutes(app, h)
+	bootstrap.RegisterRoutes(app, h, nil)
 
 	return app
 }
@@ -46,7 +65,7 @@ func TestVerifyIdentityValidPAN(t *testing.T) {
 		_, _ = w.Write([]byte(`{"pan":"ABCDE1234F","category":"Individual","status":"VALID","full_name":"John Doe"}`))
 	})
 
-	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}`)
+	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
 	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -62,21 +81,65 @@ func TestVerifyIdentityValidPAN(t *testing.T) {
 
 	var result map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&result)
-	if result["pan"] != "ABCDE1234F" {
+	if result["success"] != true {
+		t.Fatalf("expected success:true, got: %v", result)
+	}
+	if result["provider"] != "digio" {
+		t.Fatalf("expected provider:digio, got: %v", result)
+	}
+	if result["cred_id"] != "ABCDE1234F" {
 		t.Fatalf("unexpected response: %v", result)
+	}
+	if _, ok := result["provider_response"]; ok {
+		t.Fatalf("expected no provider_response without ?verbose=true, got: %v", result)
 	}
 }
 
-func TestVerifyIdentityPANDigioRejectionPassesThrough(t *testing.T) {
+func TestVerifyIdentityValidPANVerboseIncludesProviderResponse(t *testing.T) {
 	t.Parallel()
 
+	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"pan":"ABCDE1234F","category":"Individual","status":"VALID","full_name":"John Doe"}`))
+	})
+
+	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
+	req := httptest.NewRequest(http.MethodPost, "/verify-identity?verbose=true", body)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&result)
+	providerResponse, ok := result["provider_response"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected provider_response with ?verbose=true, got: %v", result)
+	}
+	if providerResponse["pan"] != "ABCDE1234F" {
+		t.Fatalf("expected provider_response to be the raw provider body, got: %v", providerResponse)
+	}
+}
+
+func TestVerifyIdentityPANFallsBackToMockOnDigioRejection(t *testing.T) {
+	t.Parallel()
+
+	// PAN.v1.yaml lists digio then mock; a Digio rejection should fall
+	// through to mock end-to-end, via the HTTP handler.
 	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"code":"BAD_REQUEST","message":"Invalid Pan Number Detected"}`))
 	})
 
-	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}`)
+	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
 	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -87,30 +150,31 @@ func TestVerifyIdentityPANDigioRejectionPassesThrough(t *testing.T) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected our API to return 200 (relaying Digio's payload verbatim), got %d", resp.StatusCode)
+		t.Fatalf("expected our API to return 200 once the mock fallback succeeds, got %d", resp.StatusCode)
 	}
 
 	var result map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&result)
-	if result["code"] != "BAD_REQUEST" || result["message"] != "Invalid Pan Number Detected" {
-		t.Fatalf("expected Digio's raw rejection body, got: %v", result)
+	if result["success"] != true || result["provider"] != "mock" {
+		t.Fatalf("expected the mock fallback provider to succeed, got: %v", result)
 	}
 }
 
-func TestVerifyIdentityPANRejectionWithNonJSONBody502s(t *testing.T) {
+func TestVerifyIdentityGSTRejectionWithNonJSONBody502s(t *testing.T) {
 	t.Parallel()
 
-	// Process()'s statusCode>=400 branch never validates the body as JSON —
-	// this endpoint's own json.Valid guard (identity_handler.go) is what
-	// must catch this and 502 rather than relaying non-JSON bytes as if
-	// they were a JSON response.
+	// GST has a single provider (no fallback), so a Digio failure here isn't
+	// masked by a fallback success. Process()'s statusCode>=400 branch never
+	// validates the body as JSON — this endpoint's own json.Valid guard
+	// (identity_handler.go) is what must catch this and 502 when ?verbose=true
+	// would otherwise embed invalid JSON in the response.
 	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte(`<html>not json</html>`))
 	})
 
-	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	body := bytes.NewBufferString(`{"cred_id":"29AABCU9603R1ZM","cred_type":"GST"}`)
+	req := httptest.NewRequest(http.MethodPost, "/verify-identity?verbose=true", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -124,7 +188,7 @@ func TestVerifyIdentityPANRejectionWithNonJSONBody502s(t *testing.T) {
 	}
 }
 
-func TestVerifyIdentityPANForwardsNameDob(t *testing.T) {
+func TestVerifyIdentityPANSendsIDOnly(t *testing.T) {
 	t.Parallel()
 
 	var gotPayload map[string]string
@@ -136,7 +200,7 @@ func TestVerifyIdentityPANForwardsNameDob(t *testing.T) {
 		_, _ = w.Write([]byte(`{"pan":"ABCDE1234F","category":"Individual","status":"VALID","full_name":"John Doe"}`))
 	})
 
-	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}`)
+	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
 	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -150,35 +214,14 @@ func TestVerifyIdentityPANForwardsNameDob(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	if gotPayload["name"] != "John Doe" {
-		t.Fatalf("expected name to reach Digio, got %v", gotPayload)
+	if gotPayload["id_no"] != "ABCDE1234F" {
+		t.Fatalf("expected id_no to reach Digio, got %v", gotPayload)
 	}
-	if gotPayload["dob"] != "01/01/1990" {
-		t.Fatalf("expected dob to reach Digio, got %v", gotPayload)
+	if _, ok := gotPayload["name"]; ok {
+		t.Fatalf("name must not reach Digio, got %v", gotPayload)
 	}
-}
-
-func TestVerifyIdentityMissingNameForPAN(t *testing.T) {
-	t.Parallel()
-
-	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {})
-	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := app.Test(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
-	}
-
-	respBody, _ := io.ReadAll(resp.Body)
-	if !bytes.Contains(respBody, []byte("name")) {
-		t.Fatalf("expected name error, got %s", string(respBody))
+	if _, ok := gotPayload["dob"]; ok {
+		t.Fatalf("dob must not reach Digio, got %v", gotPayload)
 	}
 }
 
@@ -267,13 +310,40 @@ func TestVerifyIdentityMissingCredType(t *testing.T) {
 	}
 }
 
-func TestVerifyIdentityInvalidPANFormat(t *testing.T) {
+func TestVerifyIdentityPANFormatNoLongerValidated(t *testing.T) {
+	t.Parallel()
+
+	// Regex validation was removed — a format-invalid but present cred_id
+	// now reaches the provider instead of being rejected at 400.
+	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"pan":"INVALID","category":"Individual","status":"VALID","full_name":"John Doe"}`))
+	})
+	body := bytes.NewBufferString(`{"cred_id":"INVALID","cred_type":"PAN"}`)
+	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (provider was called), got %d", resp.StatusCode)
+	}
+}
+
+func TestVerifyIdentityMissingIDNoNeverCallsProvider(t *testing.T) {
 	t.Parallel()
 
 	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("Digio should never be called for an invalid PAN format")
+		t.Fatal("no provider should be called when the required cred_id field validation fails")
 	})
-	body := bytes.NewBufferString(`{"cred_id":"INVALID","cred_type":"PAN","name":"John Doe","dob":"01/01/1990"}`)
+	// A whitespace-only cred_id survives the struct-tag `required` check
+	// (non-empty string) but normalizes (trim) to empty, so it fails the
+	// credential-type's own required id_no check before any provider call.
+	body := bytes.NewBufferString(`{"cred_id":"   ","cred_type":"PAN"}`)
 	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -293,9 +363,7 @@ func TestVerifyIdentityUnsupportedCredType(t *testing.T) {
 
 	// PAN_TO_GST, not UDYAM: UDYAM is a registered VerifierRegistry entry as
 	// of Phase 8 (see docs/IMPLEMENTATION_ROADMAP.md), so it's no longer an
-	// unsupported cred_type on this endpoint — using it here would still
-	// 400, but for "invalid Udyam format" (the id "123" fails that regex),
-	// not for being unsupported, silently testing the wrong thing.
+	// unsupported cred_type on this endpoint.
 	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("Digio should never be called for an unsupported credential type")
 	})

@@ -1,0 +1,18 @@
+# Digio KYC provider — capability catalog.
+# Secrets (base URL, token) stay in env: CREDENTIAL_SERVICE_DIGIO_*.
+# Credential-type YAMLs reference capability names below, not raw paths.
+name: digio
+version: 1
+capabilities:
+  fetch_id_data_pan:
+    method: POST
+    path: /v3/client/kyc/fetch_id_data/PAN
+  fetch_id_data_gst:
+    method: POST
+    path: /v3/client/kyc/fetch_id_data/GST
+  fetch_id_data_fssai:
+    method: POST
+    path: /client/v4/apis/kyc/fetch_id_data/FSSAI
+  fetch_id_data_udyam:
+    method: POST
+    path: /client/v4/apis/kyc/fetch_id_data/UDYAMAADHAAR
