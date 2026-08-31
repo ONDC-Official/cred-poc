@@ -16,12 +16,16 @@ func TestGstHandlerValidateCredData(t *testing.T) {
 
 	handler := testVerifier(t, nil, "GST")
 
-	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"INVALID"}`)); err == nil {
-		t.Fatal("expected error for invalid GST format")
+	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"INVALID"}`)); err != nil {
+		t.Fatalf("expected a format-invalid but present id_no to pass now that regex validation is removed: %v", err)
 	}
 
 	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"29AABCU9603R1ZM"}`)); err != nil {
 		t.Fatalf("unexpected error for valid GST cred_data: %v", err)
+	}
+
+	if err := handler.ValidateCredData(json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected error for missing required id_no")
 	}
 }
 

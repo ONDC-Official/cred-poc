@@ -78,6 +78,12 @@ func RunMigrations(db *gorm.DB) error {
 		{"remove stale CRED_PAN/CRED_GST enum values", `
 			DELETE FROM enum_types WHERE category = 'CRED_TYPE' AND value IN ('CRED_PAN', 'CRED_GST')
 		`},
+		{"add dedup columns to credential_requests", `
+			ALTER TABLE credential_requests ADD COLUMN IF NOT EXISTS participant_id TEXT NOT NULL DEFAULT '';
+			ALTER TABLE credential_requests ADD COLUMN IF NOT EXISTS payload_hash TEXT NOT NULL DEFAULT '';
+			CREATE INDEX IF NOT EXISTS idx_credential_requests_dedup
+				ON credential_requests(participant_id, payload_hash, verification_status);
+		`},
 		{"convert issuer to enum FK", `
 			DO $$
 			BEGIN
@@ -147,6 +153,7 @@ func seedEnumTypes(db *gorm.DB) error {
 		{"CRED_VERIFICATION", "FAILED", "Failed", nil, ""},
 		{"CRED_VERIFICATION", "REJECTED", "Rejected", nil, ""},
 		{"CRED_VERIFIER", "DIGIO", "Digio", nil, ""},
+		{"CRED_VERIFIER", "MOCK", "Mock", nil, ""},
 		{"CRED_ISSUER", "INCOME_TAX_DEPT", "Income Tax Department", nil, "Issuing authority for PAN"},
 		{"CRED_ISSUER", "GSTN", "GST Network", nil, "Issuing authority for GST"},
 		{"CRED_ISSUER", "FSSAI_AUTHORITY", "Food Safety and Standards Authority of India", nil, "Issuing authority for FSSAI"},

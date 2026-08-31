@@ -21,6 +21,7 @@ func setupProviderGateway(cfg *config.Config) (*provider.Gateway, error) {
 	// Future providers: add YAML + implement Caller + register here.
 	callers := map[string]provider.Caller{
 		"digio": digioClient,
+		"mock":  client.NewMockClient(),
 	}
 
 	catalog, err := provider.LoadDir(cfg.Credential.ProvidersDir)

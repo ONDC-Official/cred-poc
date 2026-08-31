@@ -51,15 +51,13 @@ func TestLoadDirRejectsUnknownTransformer(t *testing.T) {
 credential_type: BAD
 version: 1
 issuer: MSME
-provider:
-  name: digio
-  capability: fetch_id_data_pan
+providers:
+  - name: digio
+    capability: fetch_id_data_pan
 validation:
   fields:
     id_no:
       required: true
-      patterns:
-        - "^X$"
 request:
   fields:
     id_no: normalized_id
@@ -76,7 +74,7 @@ response:
 	}
 }
 
-func TestLoadDirRejectsEmptyFieldRule(t *testing.T) {
+func TestLoadDirAcceptsFieldRuleWithoutRequired(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -85,9 +83,9 @@ func TestLoadDirRejectsEmptyFieldRule(t *testing.T) {
 credential_type: EMPTY
 version: 1
 issuer: MSME
-provider:
-  name: digio
-  capability: fetch_id_data_pan
+providers:
+  - name: digio
+    capability: fetch_id_data_pan
 validation:
   fields:
     name: {}
@@ -101,13 +99,44 @@ response:
 		t.Fatal(err)
 	}
 
-	_, err := credconfig.LoadDir(dir, credential.KnownRequestTransformerNames(), credential.KnownResponseTransformerNames())
-	if err == nil {
-		t.Fatal("expected error for empty field validation rule")
+	// A field rule with no `required` key is now a no-op, not a boot error —
+	// regex validation is gone, so `required` is the only rule left to set.
+	if _, err := credconfig.LoadDir(dir, credential.KnownRequestTransformerNames(), credential.KnownResponseTransformerNames()); err != nil {
+		t.Fatalf("expected an empty field rule to load without error, got: %v", err)
 	}
 }
 
-func TestFieldAlignedValidationAppliesToConfiguredFieldsOnly(t *testing.T) {
+func TestLoadDirRejectsEmptyProvidersList(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "NOPROVIDER.v1.yaml")
+	content := []byte(`
+credential_type: NOPROVIDER
+version: 1
+issuer: MSME
+providers: []
+validation:
+  fields:
+    id_no:
+      required: true
+request:
+  fields:
+    id_no: normalized_id
+response:
+  success_field: id
+`)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := credconfig.LoadDir(dir, credential.KnownRequestTransformerNames(), credential.KnownResponseTransformerNames())
+	if err == nil {
+		t.Fatal("expected error for an empty providers list")
+	}
+}
+
+func TestFieldRequiredValidationAppliesToConfiguredFieldsOnly(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -116,9 +145,9 @@ func TestFieldAlignedValidationAppliesToConfiguredFieldsOnly(t *testing.T) {
 credential_type: NAMECHECK
 version: 1
 issuer: MSME
-provider:
-  name: digio
-  capability: fetch_id_data_pan
+providers:
+  - name: digio
+    capability: fetch_id_data_pan
 normalization:
   trim: true
   uppercase: true
@@ -126,13 +155,8 @@ validation:
   fields:
     id_no:
       required: true
-      patterns:
-        - "^[A-Z]{5}[0-9]{4}[A-Z]$"
     name:
       required: true
-      patterns:
-        - "^[A-Za-z ]+$"
-      message: "invalid name format"
 request:
   fields:
     id_no: normalized_id
@@ -164,11 +188,11 @@ response:
 	if err := verifier.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F"}`)); err == nil {
 		t.Fatal("expected missing required name to fail")
 	}
-	if err := verifier.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F","name":"John123"}`)); err == nil {
-		t.Fatal("expected invalid name pattern to fail")
+	if err := verifier.ValidateCredData(json.RawMessage(`{"id_no":"ABCDE1234F","name":"John123"}`)); err != nil {
+		t.Fatalf("expected a format-invalid but present name to pass now that regex validation is removed: %v", err)
 	}
-	if err := verifier.ValidateCredData(json.RawMessage(`{"id_no":"INVALID","name":"John Doe"}`)); err == nil {
-		t.Fatal("expected invalid id_no pattern to fail")
+	if err := verifier.ValidateCredData(json.RawMessage(`{"id_no":"INVALID","name":"John Doe"}`)); err != nil {
+		t.Fatalf("expected a format-invalid but present id_no to pass now that regex validation is removed: %v", err)
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 type CredentialRequest struct {
 	ID                 uuid.UUID        `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
 	RequestID          uuid.UUID        `gorm:"type:uuid;not null;index"`
+	ParticipantID      string           `gorm:"type:text;not null"`
+	PayloadHash        string           `gorm:"type:text;not null"`
 	CredType           uuid.UUID        `gorm:"type:uuid;not null"`
 	VerificationStatus uuid.UUID        `gorm:"type:uuid;not null"`
 	RetryCount         int              `gorm:"not null;default:0"`

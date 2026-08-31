@@ -41,6 +41,7 @@ type CredentialResultItem struct {
 	CredType           string          `json:"cred_type"`
 	CredID             string          `json:"cred_id"`
 	Status             string          `json:"status"`
-	DigioResponse      json.RawMessage `json:"digio_response,omitempty"`
+	Provider           string          `json:"provider,omitempty"`
+	ProviderResponse   json.RawMessage `json:"provider_response,omitempty"`
 	VerificationErrors json.RawMessage `json:"verification_errors,omitempty"`
 }

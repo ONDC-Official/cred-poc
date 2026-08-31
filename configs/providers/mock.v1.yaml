@@ -1,0 +1,11 @@
+# Mock KYC provider — deterministic stub used to exercise multi-provider
+# fallback for the POC without depending on a second real vendor.
+# The registered Caller (internal/service/client/mock_client.go) never makes
+# an HTTP call, so method/path below are unused but kept for catalog-shape
+# consistency with real providers.
+name: mock
+version: 1
+capabilities:
+  fetch_id_data_pan:
+    method: POST
+    path: /mock/kyc/fetch_id_data/PAN

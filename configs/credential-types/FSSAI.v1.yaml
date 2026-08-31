@@ -1,9 +1,9 @@
 credential_type: FSSAI
 version: 1
 issuer: FSSAI_AUTHORITY
-provider:
-  name: digio
-  capability: fetch_id_data_fssai
+providers:
+  - name: digio
+    capability: fetch_id_data_fssai
 normalization:
   trim: true
   remove_chars: " "
@@ -11,9 +11,6 @@ validation:
   fields:
     id_no:
       required: true
-      patterns:
-        - "^\\d{14}$"
-      message: "invalid FSSAI format, expected 14 digits"
 request:
   fields:
     id_no: normalized_id

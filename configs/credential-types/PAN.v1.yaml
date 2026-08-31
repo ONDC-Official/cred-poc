@@ -1,9 +1,11 @@
 credential_type: PAN
 version: 1
 issuer: INCOME_TAX_DEPT
-provider:
-  name: digio
-  capability: fetch_id_data_pan
+providers:
+  - name: digio
+    capability: fetch_id_data_pan
+  - name: mock
+    capability: fetch_id_data_pan
 normalization:
   trim: true
   uppercase: true
@@ -11,9 +13,6 @@ validation:
   fields:
     id_no:
       required: true
-      patterns:
-        - "^[A-Z]{5}[0-9]{4}[A-Z]$"
-      message: "invalid PAN format"
 request:
   fields:
     id_no: normalized_id

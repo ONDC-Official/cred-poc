@@ -1,9 +1,9 @@
 credential_type: UDYAM
 version: 1
 issuer: MSME
-provider:
-  name: digio
-  capability: fetch_id_data_udyam
+providers:
+  - name: digio
+    capability: fetch_id_data_udyam
 normalization:
   trim: true
   uppercase: true
@@ -11,10 +11,6 @@ validation:
   fields:
     id_no:
       required: true
-      patterns:
-        - "^UDYAM-[A-Z]{2}-\\d{2}-\\d{7}$"
-        - "^UDYAM[A-Z]{2}\\d{2}\\d{7}$"
-      message: "invalid Udyam format, expected UDYAM-XX-00-0000000"
 request:
   transformer: udyam_canonicalize
 response:

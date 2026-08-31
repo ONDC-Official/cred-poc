@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	credconfig "credential-service/internal/credential/config"
@@ -19,8 +18,13 @@ func NewVerifierFromDefinition(def *credconfig.Definition, gateway *provider.Gat
 	if gateway == nil {
 		return nil, fmt.Errorf("provider gateway is required")
 	}
-	if err := gateway.EnsureCapability(def.Provider.Name, def.Provider.Capability); err != nil {
-		return nil, err
+	if len(def.Providers) == 0 {
+		return nil, fmt.Errorf("definition %s has no providers", def.CredentialType)
+	}
+	for _, p := range def.Providers {
+		if err := gateway.EnsureCapability(p.Name, p.Capability); err != nil {
+			return nil, err
+		}
 	}
 
 	var reqXform RequestTransformer
@@ -41,15 +45,21 @@ func NewVerifierFromDefinition(def *credconfig.Definition, gateway *provider.Gat
 		respXform = fn
 	}
 
-	providerName := def.Provider.Name
-	capability := def.Provider.Capability
-	invoke := func(ctx context.Context, payload any) ([]byte, int, error) {
-		return gateway.Invoke(ctx, providerName, capability, payload)
+	providers := make([]ProviderInvoker, 0, len(def.Providers))
+	for _, p := range def.Providers {
+		providerName := p.Name
+		capability := p.Capability
+		providers = append(providers, ProviderInvoker{
+			Name: providerName,
+			Invoke: func(ctx context.Context, payload any) ([]byte, int, error) {
+				return gateway.Invoke(ctx, providerName, capability, payload)
+			},
+		})
 	}
 
 	return NewConfigVerifier(ConfigVerifierConfig{
 		CredType:        def.CredentialType,
-		Invoke:          invoke,
+		Providers:       providers,
 		ValidateFn:      makeValidateFn(def),
 		BuildRequestFn:  makeBuildRequestFn(def, reqXform),
 		ParseResponseFn: makeParseResponseFn(def, respXform),
@@ -64,21 +74,12 @@ func makeValidateFn(def *credconfig.Definition) func(json.RawMessage) error {
 		}
 
 		for fieldName, rule := range def.Validation.Fields {
-			value := fieldValue(fields, fieldName, def)
-
-			if rule.Required && value == "" {
-				return fmt.Errorf("%s cred_data: %s is required", def.CredentialType, fieldName)
-			}
-			// Optional fields with patterns: skip when empty.
-			if value == "" || len(rule.CompiledPatterns) == 0 {
+			if !rule.Required {
 				continue
 			}
-			if !MatchesAnyPattern(value, rule.CompiledPatterns) {
-				msg := strings.TrimSpace(rule.Message)
-				if msg == "" {
-					msg = fmt.Sprintf("invalid %s format", fieldName)
-				}
-				return fmt.Errorf("%w: %s", ErrInvalidCredID, msg)
+			value := fieldValue(fields, fieldName, def)
+			if value == "" {
+				return fmt.Errorf("%s cred_data: %s is required", def.CredentialType, fieldName)
 			}
 		}
 		return nil
@@ -185,16 +186,4 @@ func NormalizeID(raw string, n credconfig.Normalization) string {
 		}
 	}
 	return out
-}
-
-// MatchesAnyPattern returns true if value matches any compiled pattern, or if
-// the hyphen/space-stripped form matches (needed for UDYAM compact ids).
-func MatchesAnyPattern(value string, patterns []*regexp.Regexp) bool {
-	compact := strings.ReplaceAll(strings.ReplaceAll(value, "-", ""), " ", "")
-	for _, re := range patterns {
-		if re.MatchString(value) || re.MatchString(compact) {
-			return true
-		}
-	}
-	return false
 }

@@ -17,8 +17,8 @@ func TestUdyamHandlerValidateCredData(t *testing.T) {
 
 	handler := testVerifier(t, nil, "UDYAM")
 
-	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"INVALID"}`)); err == nil {
-		t.Fatal("expected error for invalid Udyam format")
+	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"INVALID"}`)); err != nil {
+		t.Fatalf("expected a format-invalid but present id_no to pass now that regex validation is removed: %v", err)
 	}
 
 	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"UDYAM-MH-01-1234567"}`)); err != nil {
@@ -27,6 +27,10 @@ func TestUdyamHandlerValidateCredData(t *testing.T) {
 
 	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"UDYAMMH011234567"}`)); err != nil {
 		t.Fatalf("unexpected error for valid compact Udyam cred_data: %v", err)
+	}
+
+	if err := handler.ValidateCredData(json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected error for missing required id_no")
 	}
 }
 

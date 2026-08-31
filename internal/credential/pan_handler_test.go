@@ -21,8 +21,12 @@ func TestPanHandlerValidateCredDataIDOnly(t *testing.T) {
 		t.Fatalf("unexpected error for id-only cred_data: %v", err)
 	}
 
-	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"INVALID"}`)); err == nil {
-		t.Fatal("expected error for invalid PAN format")
+	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"not-a-real-pan-format"}`)); err != nil {
+		t.Fatalf("expected a format-invalid but present id_no to pass now that regex validation is removed: %v", err)
+	}
+
+	if err := handler.ValidateCredData(json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected error for missing required id_no")
 	}
 }
 
@@ -107,7 +111,7 @@ func TestPanHandlerProcessSendsIDOnlyToDigio(t *testing.T) {
 	}
 }
 
-func TestPanHandlerProcessAttachesEvidencesOnDigioRejection(t *testing.T) {
+func TestPanHandlerProcessFallsBackToMockOnDigioRejection(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,16 +126,21 @@ func TestPanHandlerProcessAttachesEvidencesOnDigioRejection(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	handler := testVerifier(t, digioClient, "PAN")
+	// PAN.v1.yaml lists digio then mock — a Digio rejection should fall
+	// through to the mock provider, end to end, and succeed via it.
+	handler := testVerifierWithRealMock(t, digioClient, "PAN")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"ABCDE1234F"}`))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Success {
-		t.Fatalf("expected failure for a Digio 400 response, got: %+v", result)
+	if !result.Success {
+		t.Fatalf("expected the mock fallback provider to succeed after Digio's rejection, got: %+v", result)
+	}
+	if result.Provider != "mock" {
+		t.Fatalf("expected Provider to be %q, got %q", "mock", result.Provider)
 	}
 	if len(result.Evidences) != 2 {
-		t.Fatalf("expected evidences even on a Digio-side rejection, got %d: %+v", len(result.Evidences), result.Evidences)
+		t.Fatalf("expected evidences from the final (mock) attempt, got %d: %+v", len(result.Evidences), result.Evidences)
 	}
 }

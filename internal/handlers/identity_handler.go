@@ -21,6 +21,16 @@ type VerifyIdentityRequest struct {
 	Dob      string `json:"dob,omitempty"`
 }
 
+type VerifyIdentityResponse struct {
+	Success  bool           `json:"success"`
+	Provider string         `json:"provider,omitempty"`
+	CredID   string         `json:"cred_id,omitempty"`
+	Data     map[string]any `json:"data,omitempty"`
+	Error    string         `json:"error,omitempty"`
+	// ProviderResponse is only populated when ?verbose=true is set.
+	ProviderResponse json.RawMessage `json:"provider_response,omitempty"`
+}
+
 type IdentityHandler struct {
 	service *service.IdentityService
 }
@@ -66,37 +76,45 @@ func (h *IdentityHandler) VerifyIdentity(c *fiber.Ctx) error {
 		})
 	}
 
-	// No evidences means validateFn rejected the input before any Digio call
-	// (e.g. invalid PAN/GST format) — a client error, not an upstream one.
+	// No evidences means validateFn rejected the input before any provider
+	// call (e.g. a missing required field).
 	if len(result.Evidences) == 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": result.Error,
 		})
 	}
 
-	for _, e := range result.Evidences {
-		if e.Type != "response" {
-			continue
-		}
-		raw, ok := e.Data.(json.RawMessage)
-		if !ok {
-			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
-				"error": "digio response evidence has unexpected type",
-			})
-		}
-		// Process()'s statusCode>=400 branch never validates the body as
-		// JSON (the async evidences pipeline only needs the raw bytes) —
-		// but this endpoint must still guarantee it returns valid JSON.
-		if !json.Valid(raw) {
-			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
-				"error": "digio returned a non-JSON response body",
-			})
-		}
-		c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
-		return c.Send(raw)
+	resp := VerifyIdentityResponse{
+		Success:  result.Success,
+		Provider: result.Provider,
+		CredID:   result.CredID,
+		Data:     result.VerifiedData,
+		Error:    result.Error,
 	}
 
-	return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
-		"error": "digio response evidence missing",
-	})
+	if c.Query("verbose") == "true" {
+		for _, e := range result.Evidences {
+			if e.Type != "response" {
+				continue
+			}
+			raw, ok := e.Data.(json.RawMessage)
+			if !ok {
+				return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+					"error": "provider response evidence has unexpected type",
+				})
+			}
+			// Process()'s statusCode>=400 branch never validates the body as
+			// JSON (the async evidences pipeline only needs the raw bytes) —
+			// but embedding it here as json.RawMessage requires valid JSON.
+			if !json.Valid(raw) {
+				return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+					"error": "provider returned a non-JSON response body",
+				})
+			}
+			resp.ProviderResponse = raw
+			break
+		}
+	}
+
+	return c.JSON(resp)
 }

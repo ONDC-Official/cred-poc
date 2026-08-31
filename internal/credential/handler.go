@@ -17,6 +17,7 @@ type Verifier interface {
 
 type VerificationResult struct {
 	Success      bool
+	Provider     string
 	CredID       string
 	VerifiedData map[string]any
 	Evidences    []Evidence

@@ -38,6 +38,7 @@ const (
 	VerificationRejected = "REJECTED"
 
 	VerifierDigio = "DIGIO"
+	VerifierMock  = "MOCK"
 
 	IssuerIncomeTaxDept = "INCOME_TAX_DEPT"
 	IssuerGSTN          = "GSTN"

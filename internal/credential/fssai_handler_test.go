@@ -16,12 +16,16 @@ func TestFssaiHandlerValidateCredData(t *testing.T) {
 
 	handler := testVerifier(t, nil, "FSSAI")
 
-	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"12345"}`)); err == nil {
-		t.Fatal("expected error for FSSAI id shorter than 14 digits")
+	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"12345"}`)); err != nil {
+		t.Fatalf("expected a short but present id_no to pass now that regex validation is removed: %v", err)
 	}
 
 	if err := handler.ValidateCredData(json.RawMessage(`{"id_no":"21523064000396"}`)); err != nil {
 		t.Fatalf("unexpected error for valid 14-digit FSSAI cred_data: %v", err)
+	}
+
+	if err := handler.ValidateCredData(json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected error for missing required id_no")
 	}
 }
 

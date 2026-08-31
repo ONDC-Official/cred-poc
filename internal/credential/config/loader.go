@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -121,29 +120,21 @@ func validateDefinition(def *Definition, knownReq, knownResp map[string]struct{}
 	if strings.TrimSpace(def.Issuer) == "" {
 		return fmt.Errorf("issuer is required")
 	}
-	if strings.TrimSpace(def.Provider.Name) == "" {
-		return fmt.Errorf("provider.name is required")
+	if len(def.Providers) == 0 {
+		return fmt.Errorf("providers must not be empty")
 	}
-	if strings.TrimSpace(def.Provider.Capability) == "" {
-		return fmt.Errorf("provider.capability is required")
+	for i, p := range def.Providers {
+		if strings.TrimSpace(p.Name) == "" {
+			return fmt.Errorf("providers[%d].name is required", i)
+		}
+		if strings.TrimSpace(p.Capability) == "" {
+			return fmt.Errorf("providers[%d].capability is required", i)
+		}
 	}
-	for fieldName, rule := range def.Validation.Fields {
+	for fieldName := range def.Validation.Fields {
 		if strings.TrimSpace(fieldName) == "" {
 			return fmt.Errorf("validation.fields: field name must not be empty")
 		}
-		if !rule.Required && len(rule.Patterns) == 0 {
-			return fmt.Errorf("validation.fields.%s: must set required and/or patterns", fieldName)
-		}
-		compiled := make([]*regexp.Regexp, 0, len(rule.Patterns))
-		for i, p := range rule.Patterns {
-			re, err := regexp.Compile(p)
-			if err != nil {
-				return fmt.Errorf("validation.fields.%s.patterns[%d]: invalid regex: %w", fieldName, i, err)
-			}
-			compiled = append(compiled, re)
-		}
-		rule.CompiledPatterns = compiled
-		def.Validation.Fields[fieldName] = rule
 	}
 
 	reqX := strings.TrimSpace(def.Request.Transformer)

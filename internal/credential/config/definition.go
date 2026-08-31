@@ -1,17 +1,15 @@
 package config
 
-import "regexp"
-
 // Definition is the declarative credential-type config loaded from YAML.
 type Definition struct {
-	CredentialType string         `yaml:"credential_type"`
-	Version        int            `yaml:"version"`
-	Issuer         string         `yaml:"issuer"`
-	Provider       ProviderConfig `yaml:"provider"`
-	Normalization  Normalization  `yaml:"normalization"`
-	Validation     Validation     `yaml:"validation"`
-	Request        RequestConfig  `yaml:"request"`
-	Response       ResponseConfig `yaml:"response"`
+	CredentialType string           `yaml:"credential_type"`
+	Version        int              `yaml:"version"`
+	Issuer         string           `yaml:"issuer"`
+	Providers      []ProviderConfig `yaml:"providers"`
+	Normalization  Normalization    `yaml:"normalization"`
+	Validation     Validation       `yaml:"validation"`
+	Request        RequestConfig    `yaml:"request"`
+	Response       ResponseConfig   `yaml:"response"`
 }
 
 // ProviderConfig selects a runtime provider + named capability from
@@ -32,15 +30,9 @@ type Validation struct {
 	Fields map[string]FieldValidation `yaml:"fields"`
 }
 
-// FieldValidation declares optional required / pattern checks for one cred_data key.
+// FieldValidation declares an optional presence check for one cred_data key.
 type FieldValidation struct {
-	Required bool     `yaml:"required"`
-	Patterns []string `yaml:"patterns"`
-	// Message overrides the default "invalid <field> format" error text.
-	Message string `yaml:"message"`
-
-	// CompiledPatterns is filled by the loader (not YAML).
-	CompiledPatterns []*regexp.Regexp `yaml:"-"`
+	Required bool `yaml:"required"`
 }
 
 type RequestConfig struct {

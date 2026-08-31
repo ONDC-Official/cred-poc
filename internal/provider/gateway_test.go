@@ -48,7 +48,7 @@ func TestLoadRepoProvidersAndInvokeDigioCapability(t *testing.T) {
 	}
 
 	stub := &stubCaller{}
-	gateway, err := provider.NewGateway(catalog, map[string]provider.Caller{"digio": stub})
+	gateway, err := provider.NewGateway(catalog, map[string]provider.Caller{"digio": stub, "mock": &stubCaller{}})
 	if err != nil {
 		t.Fatalf("NewGateway: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestEnsureCapabilityRejectsUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gateway, err := provider.NewGateway(catalog, map[string]provider.Caller{"digio": &stubCaller{}})
+	gateway, err := provider.NewGateway(catalog, map[string]provider.Caller{"digio": &stubCaller{}, "mock": &stubCaller{}})
 	if err != nil {
 		t.Fatal(err)
 	}

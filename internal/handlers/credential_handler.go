@@ -58,7 +58,8 @@ func (h *CredentialHandler) GetResults(c *fiber.Ctx) error {
 		})
 	}
 
-	resp, err := h.service.GetResults(requestID)
+	verbose := c.Query("verbose") == "true"
+	resp, err := h.service.GetResults(requestID, verbose)
 	if err != nil {
 		if errors.Is(err, service.ErrRequestNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
