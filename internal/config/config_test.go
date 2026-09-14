@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"testing"
+	"time"
 
 	"credential-service/internal/config"
 )
@@ -13,6 +14,7 @@ func TestAuthEnvKeysUseAuthPrefix(t *testing.T) {
 	t.Setenv("CREDENTIAL_SERVICE_AUTH_REGISTRY_SIGNING_PUBLIC_KEY", "pubkey")
 	t.Setenv("CREDENTIAL_SERVICE_AUTH_REGISTRY_SUBSCRIBER_ID", "registry.local.test")
 	t.Setenv("CREDENTIAL_SERVICE_AUTH_REGISTRY_UNIQUE_KEY_ID", "registry-key-1")
+	t.Setenv("CREDENTIAL_SERVICE_AUTH_LOOKUP_URL", "https://preprod.registry.ondc.org/v2.0/lookup")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -30,6 +32,16 @@ func TestAuthEnvKeysUseAuthPrefix(t *testing.T) {
 	}
 	if cfg.Auth.RegistryUniqueKeyID != "registry-key-1" {
 		t.Fatalf("unexpected unique key id: %q", cfg.Auth.RegistryUniqueKeyID)
+	}
+	// The .env in use sets this exact key; a renamed tag would silently disable lookup.
+	if cfg.Auth.LookupURL != "https://preprod.registry.ondc.org/v2.0/lookup" {
+		t.Fatalf("CREDENTIAL_SERVICE_AUTH_LOOKUP_URL did not map to cfg.Auth.LookupURL, got %q", cfg.Auth.LookupURL)
+	}
+	if cfg.Auth.LookupCacheTTL != 5*time.Minute {
+		t.Fatalf("unexpected lookup cache ttl default: %v", cfg.Auth.LookupCacheTTL)
+	}
+	if cfg.Auth.LookupTimeout != 10*time.Second {
+		t.Fatalf("unexpected lookup timeout default: %v", cfg.Auth.LookupTimeout)
 	}
 }
 

@@ -67,7 +67,10 @@ func New() (*App, error) {
 		credWorker = cw
 	}
 
-	handlers := NewHandlers(identityService, credHandler)
+	handlers := NewHandlers(cfg, identityService, credHandler)
+	if handlers.Auth != nil {
+		log.Println("POST /generate-header is enabled and UNAUTHENTICATED; it signs any payload with this service's key. Local testing only.")
+	}
 	authVerifier, err := setupAuthVerifier(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup auth verifier: %w", err)

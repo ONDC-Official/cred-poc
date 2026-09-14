@@ -17,6 +17,10 @@ services:
       # When running inside Docker, `localhost` would point to the API container itself.
       # Use the Postgres service hostname instead.
       CREDENTIAL_SERVICE_DB_HOST: "postgres"
+      # Inside the compose network Postgres is always on 5432. CREDENTIAL_SERVICE_DB_PORT
+      # in .env is the *host* port, which may differ to avoid clashing with a local
+      # Postgres install; it must not leak into the container.
+      CREDENTIAL_SERVICE_DB_PORT: "5432"
     depends_on:
       postgres:
         condition: service_healthy

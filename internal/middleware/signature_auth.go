@@ -22,7 +22,9 @@ func SignatureAuth(verifier *auth.Verifier) fiber.Handler {
 		body, _ := rawBody.(string)
 
 		authHeader := c.Get(fiber.HeaderAuthorization)
-		if err := verifier.Verify(authHeader, body); err != nil {
+		// Pass the request context so an outbound registry lookup is cancelled with
+		// the request rather than outliving it.
+		if err := verifier.VerifyContext(c.UserContext(), authHeader, body); err != nil {
 			if errors.Is(err, auth.ErrMissingAuthorization) || errors.Is(err, auth.ErrUnauthorized) {
 				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 					"error": err.Error(),

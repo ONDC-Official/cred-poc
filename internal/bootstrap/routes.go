@@ -14,6 +14,13 @@ func registerRoutes(app *fiber.App, h *Handlers, verifier *auth.Verifier) {
 func RegisterRoutes(app *fiber.App, h *Handlers, verifier *auth.Verifier) {
 	app.Get("/health", h.Health.Check)
 
+	// Deliberately outside the protected group: you need this to produce the header the
+	// group requires. It signs anything with this service's own key, so it is registered
+	// only when enabled (development by default) and must never be publicly reachable.
+	if h.Auth != nil {
+		app.Post("/generate-header", h.Auth.GenerateHeader)
+	}
+
 	protected := app.Group("", appmiddleware.CaptureRawBody(), appmiddleware.SignatureAuth(verifier))
 	protected.Post("/verify-identity", h.Identity.VerifyIdentity)
 

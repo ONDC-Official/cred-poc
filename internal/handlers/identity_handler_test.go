@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"credential-service/internal/bootstrap"
+	"credential-service/internal/config"
 	"credential-service/internal/credential"
 	"credential-service/internal/provider"
 	"credential-service/internal/service"
@@ -49,7 +50,7 @@ func setupTestApp(t *testing.T, digioHandler http.HandlerFunc) *fiber.App {
 		t.Fatalf("NewRegistryFromDir: %v", err)
 	}
 	svc := service.NewIdentityService(registry)
-	h := bootstrap.NewHandlers(svc, nil)
+	h := bootstrap.NewHandlers(&config.Config{}, svc, nil)
 
 	app := fiber.New()
 	bootstrap.RegisterRoutes(app, h, nil)
@@ -390,7 +391,7 @@ func TestVerifyIdentityUnsupportedCredType(t *testing.T) {
 func TestHealthEndpoint(t *testing.T) {
 	t.Parallel()
 
-	h := bootstrap.NewHandlers(nil, nil)
+	h := bootstrap.NewHandlers(&config.Config{}, nil, nil)
 	app := fiber.New()
 	app.Get("/health", h.Health.Check)
 

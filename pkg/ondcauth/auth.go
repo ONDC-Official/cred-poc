@@ -17,6 +17,10 @@ import (
 
 const defaultTTLSeconds int64 = 60 * 60
 
+// DefaultTTL is how long a generated Authorization header stays valid. Callers that
+// mint headers should use this rather than repeating the number.
+const DefaultTTL = time.Duration(defaultTTLSeconds) * time.Second
+
 var authHeaderKVRe = regexp.MustCompile(`\s*([^=]+)=([^,]+)[,]?`)
 
 type CreateAuthorizationHeaderParams struct {
@@ -85,6 +89,14 @@ func IsHeaderValid(p IsHeaderValidParams) bool {
 
 func VerifyAuthorisationHeader(p VerifyAuthorisationHeaderParams) (bool, error) {
 	parts := splitAuthHeader(p.AuthHeader)
+
+	// Reject a non-ed25519 header before spending any work on the digest.
+	if alg, ok := parts["algorithm"]; ok {
+		if normalized := strings.ToLower(strings.TrimSpace(alg)); normalized != "" && normalized != AlgorithmEd25519 {
+			return false, fmt.Errorf("unsupported algorithm: %s", alg)
+		}
+	}
+
 	createdStr, ok := parts["created"]
 	if !ok || createdStr == "" {
 		return false, errors.New("missing created")
@@ -131,6 +143,12 @@ func VerifyAuthorisationHeader(p VerifyAuthorisationHeaderParams) (bool, error) 
 	return true, nil
 }
 
+// AlgorithmEd25519 is the only signature algorithm ONDC permits on this scheme.
+const AlgorithmEd25519 = "ed25519"
+
+// ParseKeyID extracts subscriber_id and unique_key_id from the header's keyId.
+// It also enforces that both the keyId's algorithm segment and the header's own
+// algorithm parameter name ed25519; anything else is rejected outright.
 func ParseKeyID(authHeader string) (subscriberID, uniqueKeyID string, err error) {
 	parts := splitAuthHeader(authHeader)
 	keyID, ok := parts["keyId"]
@@ -141,6 +159,21 @@ func ParseKeyID(authHeader string) (subscriberID, uniqueKeyID string, err error)
 	if len(segments) < 2 || segments[0] == "" || segments[1] == "" {
 		return "", "", fmt.Errorf("malformed keyId: %s", keyID)
 	}
+
+	// The algorithm appears twice: as the keyId's third segment and as the separate
+	// algorithm parameter. Reject on either, so a downgrade needs both to be forged
+	// and still fails.
+	if len(segments) == 3 {
+		if alg := strings.ToLower(strings.TrimSpace(segments[2])); alg != "" && alg != AlgorithmEd25519 {
+			return "", "", fmt.Errorf("unsupported algorithm in keyId: %s", segments[2])
+		}
+	}
+	if alg, ok := parts["algorithm"]; ok {
+		if normalized := strings.ToLower(strings.TrimSpace(alg)); normalized != "" && normalized != AlgorithmEd25519 {
+			return "", "", fmt.Errorf("unsupported algorithm: %s", alg)
+		}
+	}
+
 	return segments[0], segments[1], nil
 }
 
@@ -229,6 +262,9 @@ func blake512DigestBase64(message string) (string, error) {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
+// decodeBase64Original decodes standard Base64 only, padded or unpadded. The ONDC
+// scheme mandates the standard alphabet; the URL-safe alphabet is deliberately not
+// accepted, so a key or signature has exactly one valid representation.
 func decodeBase64Original(s string) ([]byte, error) {
 	if s == "" {
 		return nil, errors.New("empty base64 string")
@@ -237,8 +273,7 @@ func decodeBase64Original(s string) ([]byte, error) {
 	if err == nil {
 		return b, nil
 	}
-	b2, err2 := base64.RawStdEncoding.DecodeString(s)
-	if err2 == nil {
+	if b2, err2 := base64.RawStdEncoding.DecodeString(s); err2 == nil {
 		return b2, nil
 	}
 	return nil, err
