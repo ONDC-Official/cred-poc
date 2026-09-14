@@ -18,6 +18,7 @@ fmt:
 
 docker-network:
 	@docker network inspect cred_network >/dev/null 2>&1 || docker network create cred_network
+	@[ -f .env ] || cp .env.sample .env
 
 docker-build:
 	docker compose build

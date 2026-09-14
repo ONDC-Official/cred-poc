@@ -7,10 +7,7 @@ services:
     ports:
       - "${CREDENTIAL_SERVICE_APP_PORT:-8080}:8080"
     env_file:
-      - path: .env.sample
-        required: true
-      - path: .env
-        required: false
+      - .env
     environment:
       CREDENTIAL_SERVICE_APP_NAME: "${CREDENTIAL_SERVICE_APP_NAME}"
       CREDENTIAL_SERVICE_APP_PORT: "8080"
