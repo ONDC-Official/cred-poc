@@ -1,7 +1,7 @@
 APP_NAME := credential-service
 GO := go
 
-.PHONY: run build test fmt docker-build docker-up docker-down docker-logs
+.PHONY: run build test fmt docker-network docker-build docker-up docker-down docker-logs
 
 run:
 	@bash -c 'set -a; [ -f .env ] && source .env; set +a; go run ./cmd/api'
@@ -16,10 +16,13 @@ test:
 fmt:
 	$(GO) fmt ./...
 
+docker-network:
+	@docker network inspect cred_network >/dev/null 2>&1 || docker network create cred_network
+
 docker-build:
 	docker compose build
 
-docker-up:
+docker-up: docker-network
 	docker compose up --build -d
 
 docker-down:
