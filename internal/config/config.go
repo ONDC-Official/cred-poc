@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
@@ -65,6 +66,29 @@ type AuthConfig struct {
 	SigningPublic  string `envconfig:"SIGNING_PUBLIC"`
 	SubscriberID   string `envconfig:"SUBSCRIBER_ID"`
 	UniqueKeyID    string `envconfig:"UNIQUE_KEY_ID"`
+	// LookupURL is the ONDC Registry /lookup endpoint. When set, inbound signing keys are
+	// resolved per-subscriber from the registry instead of the single static key above.
+	// Full env key: CREDENTIAL_SERVICE_AUTH_LOOKUP_URL.
+	LookupURL string `envconfig:"LOOKUP_URL"`
+	// LookupCacheTTL is how long a resolved signing key is reused before re-querying.
+	LookupCacheTTL time.Duration `envconfig:"LOOKUP_CACHE_TTL" default:"5m"`
+	// LookupTimeout bounds a single outbound /lookup call.
+	LookupTimeout time.Duration `envconfig:"LOOKUP_TIMEOUT" default:"10s"`
+	// EnableHeaderGenerator exposes POST /generate-header, which signs any payload with
+	// this service's own private key. It is a local testing aid, never production intent.
+	// Left unset it is on in development and off everywhere else; set it to force either
+	// way. Full env key: CREDENTIAL_SERVICE_AUTH_ENABLE_HEADER_GENERATOR.
+	EnableHeaderGenerator *bool `envconfig:"ENABLE_HEADER_GENERATOR"`
+}
+
+// HeaderGeneratorEnabled reports whether POST /generate-header should be registered.
+// An explicit setting always wins; otherwise it follows the environment, so a developer
+// gets the helper for free and a deployed service does not.
+func (a AuthConfig) HeaderGeneratorEnabled(appEnv string) bool {
+	if a.EnableHeaderGenerator != nil {
+		return *a.EnableHeaderGenerator
+	}
+	return strings.EqualFold(strings.TrimSpace(appEnv), "development")
 }
 
 func Load() (*Config, error) {

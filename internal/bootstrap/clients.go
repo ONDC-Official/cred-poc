@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"credential-service/internal/auth"
 	"credential-service/internal/config"
@@ -36,14 +37,46 @@ func setupAuthVerifier(cfg *config.Config) (*auth.Verifier, error) {
 		log.Println("signature auth disabled (CREDENTIAL_SERVICE_AUTH_ENABLED=false); /verify-identity and /credential are open")
 		return nil, nil
 	}
-	if cfg.Auth.RegistrySigningPublicKey == "" {
-		return nil, fmt.Errorf("CREDENTIAL_SERVICE_AUTH_REGISTRY_SIGNING_PUBLIC_KEY is required when CREDENTIAL_SERVICE_AUTH_ENABLED=true")
+	var registryClient auth.RegistryClient
+	if cfg.Auth.LookupURL != "" {
+		// The lookup call must itself be signed, so this service's own credentials are
+		// mandatory on this path. Fail at boot rather than on the first request.
+		var missing []string
+		if cfg.Auth.SigningPrivate == "" {
+			missing = append(missing, "CREDENTIAL_SERVICE_AUTH_SIGNING_PRIVATE")
+		}
+		if cfg.Auth.SubscriberID == "" {
+			missing = append(missing, "CREDENTIAL_SERVICE_AUTH_SUBSCRIBER_ID")
+		}
+		if cfg.Auth.UniqueKeyID == "" {
+			missing = append(missing, "CREDENTIAL_SERVICE_AUTH_UNIQUE_KEY_ID")
+		}
+		if len(missing) > 0 {
+			return nil, fmt.Errorf("%s required when CREDENTIAL_SERVICE_AUTH_LOOKUP_URL is set", strings.Join(missing, ", "))
+		}
+
+		registryClient = auth.NewONDCRegistryClient(auth.ONDCRegistryClientConfig{
+			LookupURL:    cfg.Auth.LookupURL,
+			PrivateKey:   cfg.Auth.SigningPrivate,
+			SubscriberID: cfg.Auth.SubscriberID,
+			UniqueKeyID:  cfg.Auth.UniqueKeyID,
+			CacheTTL:     cfg.Auth.LookupCacheTTL,
+			Timeout:      cfg.Auth.LookupTimeout,
+		})
+		log.Printf("signature auth enabled; signing keys resolved from ONDC Registry at %s", cfg.Auth.LookupURL)
 	}
 
-	log.Println("signature auth enabled; registry-signed Authorization header required")
+	if registryClient == nil && cfg.Auth.RegistrySigningPublicKey == "" {
+		return nil, fmt.Errorf("CREDENTIAL_SERVICE_AUTH_LOOKUP_URL or CREDENTIAL_SERVICE_AUTH_REGISTRY_SIGNING_PUBLIC_KEY is required when CREDENTIAL_SERVICE_AUTH_ENABLED=true")
+	}
+	if registryClient == nil {
+		log.Println("signature auth enabled; verifying against the static configured signing public key")
+	}
+
 	return auth.NewVerifier(auth.Config{
 		RegistrySigningPublicKey: cfg.Auth.RegistrySigningPublicKey,
 		ExpectedSubscriberID:     cfg.Auth.RegistrySubscriberID,
 		ExpectedUniqueKeyID:      cfg.Auth.RegistryUniqueKeyID,
+		RegistryClient:           registryClient,
 	})
 }
