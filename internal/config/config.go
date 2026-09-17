@@ -13,6 +13,10 @@ type Config struct {
 	Digio      DigioConfig
 	Credential CredentialConfig
 	Auth       AuthConfig
+	Telemetry  TelemetryConfig `envconfig:"OTEL"`
+	// AccessToken guards GET /subscriber/:id only, as a bare `Authorization: <token>`
+	// header. Empty leaves the route unregistered. Env: CREDENTIAL_SERVICE_ACCESS_TOKEN.
+	AccessToken string `envconfig:"ACCESS_TOKEN"`
 }
 
 type AppConfig struct {
@@ -49,6 +53,13 @@ type CredentialConfig struct {
 	TypesDir string `envconfig:"TYPES_DIR" default:"configs/credential-types"`
 	// ProvidersDir is the filesystem path to Git-tracked provider capability catalogs.
 	ProvidersDir string `envconfig:"PROVIDERS_DIR" default:"configs/providers"`
+}
+
+// TelemetryConfig switches OpenTelemetry export on. Everything else (endpoint, headers,
+// sampler, extra resource attributes) is read by the SDK from the standard OTEL_* env vars,
+// e.g. OTEL_EXPORTER_OTLP_ENDPOINT. Env: CREDENTIAL_SERVICE_OTEL_ENABLED.
+type TelemetryConfig struct {
+	Enabled bool `envconfig:"ENABLED" default:"false"`
 }
 
 // AuthConfig secures credential-service APIs for registry-service → credential-service calls.

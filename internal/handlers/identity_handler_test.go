@@ -50,7 +50,7 @@ func setupTestApp(t *testing.T, digioHandler http.HandlerFunc) *fiber.App {
 		t.Fatalf("NewRegistryFromDir: %v", err)
 	}
 	svc := service.NewIdentityService(registry)
-	h := bootstrap.NewHandlers(&config.Config{}, svc, nil)
+	h := bootstrap.NewHandlers(&config.Config{}, svc, nil, nil, nil)
 
 	app := fiber.New()
 	bootstrap.RegisterRoutes(app, h, nil)
@@ -129,11 +129,11 @@ func TestVerifyIdentityValidPANVerboseIncludesProviderResponse(t *testing.T) {
 	}
 }
 
-func TestVerifyIdentityPANFallsBackToMockOnDigioRejection(t *testing.T) {
+func TestVerifyIdentityPANDigioRejectionIsFailure(t *testing.T) {
 	t.Parallel()
 
-	// PAN.v1.yaml lists digio then mock; a Digio rejection should fall
-	// through to mock end-to-end, via the HTTP handler.
+	// PAN.v1.yaml lists only digio: a Digio rejection reaches the caller as a
+	// 200 with success=false, never as a success from a fallback provider.
 	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -151,13 +151,13 @@ func TestVerifyIdentityPANFallsBackToMockOnDigioRejection(t *testing.T) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected our API to return 200 once the mock fallback succeeds, got %d", resp.StatusCode)
+		t.Fatalf("expected our API to return 200 for a provider-side rejection, got %d", resp.StatusCode)
 	}
 
 	var result map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&result)
-	if result["success"] != true || result["provider"] != "mock" {
-		t.Fatalf("expected the mock fallback provider to succeed, got: %v", result)
+	if result["success"] != false || result["provider"] != "digio" {
+		t.Fatalf("expected a failure from digio, got: %v", result)
 	}
 }
 
@@ -391,7 +391,7 @@ func TestVerifyIdentityUnsupportedCredType(t *testing.T) {
 func TestHealthEndpoint(t *testing.T) {
 	t.Parallel()
 
-	h := bootstrap.NewHandlers(&config.Config{}, nil, nil)
+	h := bootstrap.NewHandlers(&config.Config{}, nil, nil, nil, nil)
 	app := fiber.New()
 	app.Get("/health", h.Health.Check)
 

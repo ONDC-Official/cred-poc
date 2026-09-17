@@ -4,8 +4,6 @@ issuer: INCOME_TAX_DEPT
 providers:
   - name: digio
     capability: fetch_id_data_pan
-  - name: mock
-    capability: fetch_id_data_pan
 normalization:
   trim: true
   uppercase: true

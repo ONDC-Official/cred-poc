@@ -21,6 +21,11 @@ func RegisterRoutes(app *fiber.App, h *Handlers, verifier *auth.Verifier) {
 		app.Post("/generate-header", h.Auth.GenerateHeader)
 	}
 
+	// Outside the protected group: authenticated by a static token, not a signature.
+	if h.SubscriberLogs != nil {
+		app.Get("/subscriber/:id", appmiddleware.AccessToken(h.accessToken), h.SubscriberLogs.List)
+	}
+
 	protected := app.Group("", appmiddleware.CaptureRawBody(), appmiddleware.SignatureAuth(verifier))
 	protected.Post("/verify-identity", h.Identity.VerifyIdentity)
 

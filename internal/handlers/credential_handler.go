@@ -33,7 +33,7 @@ func (h *CredentialHandler) SubmitCredentials(c *fiber.Ctx) error {
 		})
 	}
 
-	resp, err := h.service.SubmitCredentials(&req)
+	resp, err := h.service.SubmitCredentials(c.UserContext(), &req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -59,7 +59,7 @@ func (h *CredentialHandler) GetResults(c *fiber.Ctx) error {
 	}
 
 	verbose := c.Query("verbose") == "true"
-	resp, err := h.service.GetResults(requestID, verbose)
+	resp, err := h.service.GetResults(c.UserContext(), requestID, verbose)
 	if err != nil {
 		if errors.Is(err, service.ErrRequestNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{

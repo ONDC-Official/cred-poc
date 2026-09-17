@@ -73,3 +73,25 @@ func TestCredentialTypesDirDefaultAndOverride(t *testing.T) {
 		t.Fatalf("unexpected overridden ProvidersDir: %q", cfg.Credential.ProvidersDir)
 	}
 }
+
+func TestTelemetryEnabledEnvKey(t *testing.T) {
+	t.Setenv("CREDENTIAL_SERVICE_DIGIO_BASE_URL", "https://example.com")
+	t.Setenv("CREDENTIAL_SERVICE_DIGIO_TOKEN", "tok")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Telemetry.Enabled {
+		t.Fatal("expected telemetry to be off by default")
+	}
+
+	t.Setenv("CREDENTIAL_SERVICE_OTEL_ENABLED", "true")
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Telemetry.Enabled {
+		t.Fatal("CREDENTIAL_SERVICE_OTEL_ENABLED did not map to cfg.Telemetry.Enabled")
+	}
+}

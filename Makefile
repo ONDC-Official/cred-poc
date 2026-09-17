@@ -1,7 +1,9 @@
 APP_NAME := credential-service
 GO := go
 
-.PHONY: run build test fmt docker-network docker-build docker-up docker-down docker-logs
+DEBUG_COMPOSE := docker compose -f docker-compose.yml -f docker-compose.debug.yml
+
+.PHONY: run build test fmt docker-network docker-build docker-up docker-down docker-logs debug-up debug-logs debug-down
 
 run:
 	@bash -c 'set -a; [ -f .env ] && source .env; set +a; go run ./cmd/api'
@@ -31,3 +33,13 @@ docker-down:
 
 docker-logs:
 	docker compose logs -f credential-service
+
+# Runs the service under Delve; attach from VS Code on port 2345.
+debug-up: docker-network
+	$(DEBUG_COMPOSE) up --build -d credential-service
+
+debug-logs:
+	$(DEBUG_COMPOSE) logs -f credential-service
+
+debug-down:
+	$(DEBUG_COMPOSE) stop credential-service

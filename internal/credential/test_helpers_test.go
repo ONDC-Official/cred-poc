@@ -72,26 +72,3 @@ func testVerifier(t *testing.T, digioClient *client.DigioClient, credType string
 	return v
 }
 
-// testVerifierWithRealMock builds a verifier whose "mock" provider is the
-// real production client.MockClient (rather than a noop), so tests can
-// exercise the digio->mock fallback chain end to end.
-func testVerifierWithRealMock(t *testing.T, digioClient *client.DigioClient, credType string) credential.Verifier {
-	t.Helper()
-	callers := map[string]provider.Caller{
-		"digio": digioClient,
-		"mock":  client.NewMockClient(),
-	}
-	gateway, err := credential.NewGatewayFromProvidersDir(testProvidersDir(t), callers)
-	if err != nil {
-		t.Fatalf("NewGatewayFromProvidersDir: %v", err)
-	}
-	registry, err := credential.NewRegistryFromDir(testDefinitionsDir(t), gateway)
-	if err != nil {
-		t.Fatalf("NewRegistryFromDir: %v", err)
-	}
-	v, err := registry.Resolve(credType)
-	if err != nil {
-		t.Fatalf("Resolve(%s): %v", credType, err)
-	}
-	return v
-}

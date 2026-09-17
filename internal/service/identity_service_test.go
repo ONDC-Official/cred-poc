@@ -177,7 +177,7 @@ func TestIdentityServiceDigioRejectionReturnsFailureNotError(t *testing.T) {
 	}
 }
 
-func TestIdentityServicePANFallsBackToMockOnDigioRejection(t *testing.T) {
+func TestIdentityServicePANDigioRejectionIsFailure(t *testing.T) {
 	t.Parallel()
 
 	registry, closeServer := newTestRegistry(t, func(w http.ResponseWriter, r *http.Request) {
@@ -194,8 +194,12 @@ func TestIdentityServicePANFallsBackToMockOnDigioRejection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Success || result.Provider != "mock" {
-		t.Fatalf("expected the mock fallback provider to succeed after Digio's rejection, got: %+v", result)
+	// PAN has no fallback provider: Digio's rejection is the result.
+	if result.Success || result.Provider != "digio" {
+		t.Fatalf("expected Digio's rejection to be a failure from digio, got: %+v", result)
+	}
+	if len(result.Evidences) != 2 {
+		t.Fatalf("expected request and response evidences, got %d", len(result.Evidences))
 	}
 }
 

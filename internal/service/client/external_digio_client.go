@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // DigioClient is the Digio KYC HTTP adapter. It implements provider.Caller.
@@ -30,6 +33,10 @@ func NewDigioClient(cfg DigioConfig) *DigioClient {
 		token:   cfg.Token,
 		httpClient: &http.Client{
 			Timeout: cfg.Timeout,
+			// Client spans and http.client.* metrics. Digio is a third-party vendor, so no
+			// traceparent/baggage headers are sent to it: an empty propagator injects nothing.
+			Transport: otelhttp.NewTransport(http.DefaultTransport,
+				otelhttp.WithPropagators(propagation.NewCompositeTextMapPropagator())),
 		},
 	}
 }

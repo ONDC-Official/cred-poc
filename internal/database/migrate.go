@@ -2,13 +2,13 @@ package database
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 
 	"gorm.io/gorm"
 )
 
 func RunMigrations(db *gorm.DB) error {
-	log.Println("running database migrations...")
+	slog.Info("running database migrations...")
 
 	migrations := []struct {
 		name string
@@ -114,20 +114,51 @@ func RunMigrations(db *gorm.DB) error {
 				END IF;
 			END $$;
 		`},
+		// /verify-identity rows carry the caller; /credential rows keep the '' default.
+		{"add subscriber_id to credential_requests", `
+			ALTER TABLE credential_requests ADD COLUMN IF NOT EXISTS subscriber_id TEXT NOT NULL DEFAULT '';
+			CREATE INDEX IF NOT EXISTS idx_credential_requests_subscriber
+				ON credential_requests(subscriber_id, created_at DESC, id DESC);
+		`},
+		// Verbatim bodies of a /verify-identity call; cred_data is reshaped and
+		// evidences is the provider exchange, so neither one is these.
+		{"add request/response body to credential_requests", `
+			ALTER TABLE credential_requests ADD COLUMN IF NOT EXISTS request_body TEXT;
+			ALTER TABLE credential_requests ADD COLUMN IF NOT EXISTS response_body TEXT;
+		`},
+		// For databases that already took these columns as JSONB.
+		{"convert request/response body to text", `
+			DO $$
+			BEGIN
+				IF EXISTS (
+					SELECT 1 FROM information_schema.columns
+					WHERE table_name = 'credential_requests' AND column_name = 'request_body' AND data_type <> 'text'
+				) THEN
+					ALTER TABLE credential_requests ALTER COLUMN request_body TYPE TEXT USING request_body::text;
+				END IF;
+
+				IF EXISTS (
+					SELECT 1 FROM information_schema.columns
+					WHERE table_name = 'credential_requests' AND column_name = 'response_body' AND data_type <> 'text'
+				) THEN
+					ALTER TABLE credential_requests ALTER COLUMN response_body TYPE TEXT USING response_body::text;
+				END IF;
+			END $$;
+		`},
 	}
 
 	for _, m := range migrations {
 		if err := db.Exec(m.sql).Error; err != nil {
 			return fmt.Errorf("migration %q failed: %w", m.name, err)
 		}
-		log.Printf("migration %q applied", m.name)
+		slog.Info("migration applied", "name", m.name)
 	}
 
 	if err := seedEnumTypes(db); err != nil {
 		return fmt.Errorf("seeding enum types failed: %w", err)
 	}
 
-	log.Println("database migrations complete")
+	slog.Info("database migrations complete")
 	return nil
 }
 
@@ -172,6 +203,6 @@ func seedEnumTypes(db *gorm.DB) error {
 		}
 	}
 
-	log.Println("enum types seeded")
+	slog.Info("enum types seeded")
 	return nil
 }

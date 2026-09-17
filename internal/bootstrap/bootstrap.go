@@ -3,13 +3,14 @@ package bootstrap
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"credential-service/internal/config"
+	"credential-service/internal/telemetry"
 	"credential-service/internal/worker"
 
 	"github.com/gofiber/fiber/v2"
@@ -17,10 +18,11 @@ import (
 )
 
 type App struct {
-	cfg    *config.Config
-	fiber  *fiber.App
-	db     *gorm.DB
-	worker *worker.CredentialWorker
+	cfg               *config.Config
+	fiber             *fiber.App
+	db                *gorm.DB
+	worker            *worker.CredentialWorker
+	shutdownTelemetry telemetry.Shutdown
 }
 
 func Run() error {
@@ -38,6 +40,23 @@ func New() (*App, error) {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// First, so boot logs, migrations and the GORM plugin all see the real providers.
+	shutdownTelemetry, err := telemetry.Setup(context.Background(), cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup telemetry: %w", err)
+	}
+
+	app, err := newApp(cfg)
+	if err != nil {
+		// Flush whatever boot managed to emit before the failure.
+		_ = shutdownTelemetry(context.Background())
+		return nil, err
+	}
+	app.shutdownTelemetry = shutdownTelemetry
+	return app, nil
+}
+
+func newApp(cfg *config.Config) (*App, error) {
 	db, err := setupDatabase(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup database: %w", err)
@@ -56,20 +75,20 @@ func New() (*App, error) {
 	identityService := setupIdentityService(registry)
 
 	var credWorker *worker.CredentialWorker
-	credService, credHandler, cw, err := setupCredentialStack(db, registry, identityService, cfg.Credential.DefaultValidity)
+	stack, err := setupCredentialStack(db, registry, identityService, cfg.Credential.DefaultValidity)
 	if err != nil {
 		if db != nil {
 			return nil, fmt.Errorf("failed to setup credential stack: %w", err)
 		}
-		log.Println("credential stack not initialized (no database)")
+		slog.Info("credential stack not initialized (no database)")
+		stack = &credentialStack{}
 	} else {
-		_ = credService
-		credWorker = cw
+		credWorker = stack.worker
 	}
 
-	handlers := NewHandlers(cfg, identityService, credHandler)
+	handlers := NewHandlers(cfg, identityService, stack.handler, stack.logger, stack.logsHandler)
 	if handlers.Auth != nil {
-		log.Println("POST /generate-header is enabled and UNAUTHENTICATED; it signs any payload with this service's key. Local testing only.")
+		slog.Warn("POST /generate-header is enabled and UNAUTHENTICATED; it signs any payload with this service's key. Local testing only.")
 	}
 	authVerifier, err := setupAuthVerifier(cfg)
 	if err != nil {
@@ -93,7 +112,7 @@ func New() (*App, error) {
 
 func (a *App) Start() error {
 	addr := ":" + a.cfg.App.Port
-	log.Printf("starting %s on %s", a.cfg.App.Name, addr)
+	slog.Info("starting server", "service", a.cfg.App.Name, "addr", addr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -116,7 +135,7 @@ func (a *App) Start() error {
 	case err := <-errCh:
 		return fmt.Errorf("failed to start server: %w", err)
 	case <-quit:
-		log.Println("shutting down server...")
+		slog.Info("shutting down server...")
 	}
 
 	if a.worker != nil {
@@ -128,9 +147,14 @@ func (a *App) Start() error {
 	defer shutdownCancel()
 
 	if err := a.fiber.ShutdownWithContext(shutdownCtx); err != nil {
+		_ = a.shutdownTelemetry(shutdownCtx)
 		return fmt.Errorf("server forced to shutdown: %w", err)
 	}
 
-	log.Println("server stopped")
+	slog.Info("server stopped")
+	// Last, so the spans, metrics and logs of shutdown itself are flushed.
+	if err := a.shutdownTelemetry(shutdownCtx); err != nil {
+		return fmt.Errorf("telemetry shutdown: %w", err)
+	}
 	return nil
 }

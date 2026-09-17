@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -16,8 +16,10 @@ import (
 	"credential-service/internal/handlers/dto"
 	"credential-service/internal/models"
 	"credential-service/internal/repository"
+	"credential-service/internal/telemetry"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var ErrRequestNotFound = errors.New("credential request not found")
@@ -28,7 +30,7 @@ var ErrRequestNotFound = errors.New("credential request not found")
 // handleVerificationSuccess's field-mapping logic can be unit-tested with a
 // fake, without a real database.
 type CredentialCreator interface {
-	Create(cred *models.Credential) error
+	Create(ctx context.Context, cred *models.Credential) error
 }
 
 type CredentialService struct {
@@ -70,7 +72,7 @@ func (s *CredentialService) JobChannel() <-chan uuid.UUID {
 	return s.jobCh
 }
 
-func (s *CredentialService) SubmitCredentials(req *dto.SubmitCredentialsRequest) (*dto.SubmitCredentialsResponse, error) {
+func (s *CredentialService) SubmitCredentials(ctx context.Context, req *dto.SubmitCredentialsRequest) (*dto.SubmitCredentialsResponse, error) {
 	credDataByItem := make([]json.RawMessage, len(req.Credentials))
 	for i, item := range req.Credentials {
 		verifier, err := s.registry.Resolve(item.CredType)
@@ -122,19 +124,21 @@ func (s *CredentialService) SubmitCredentials(req *dto.SubmitCredentialsRequest)
 		return records
 	}
 
-	records, reused, err := s.credReqRepo.CreateManyIfNotInFlight(req.ParticipantID, payloadHash, pendingID, build)
+	records, reused, err := s.credReqRepo.CreateManyIfNotInFlight(ctx, req.ParticipantID, payloadHash, pendingID, build)
 	if err != nil {
 		return nil, fmt.Errorf("failed to persist credential requests: %w", err)
 	}
 
+	telemetry.RecordSubmission(ctx, reused)
 	if reused {
-		log.Printf("credential request for participant %s reused in-flight request %s (duplicate payload)", req.ParticipantID, records[0].RequestID)
+		slog.InfoContext(ctx, "credential request reused in-flight request (duplicate payload)",
+			"participant_id", req.ParticipantID, "request_id", records[0].RequestID)
 	} else {
 		for _, rec := range records {
 			select {
 			case s.jobCh <- rec.ID:
 			default:
-				log.Printf("warning: job channel full, credential request %s may be delayed", rec.ID)
+				slog.WarnContext(ctx, "job channel full, credential request may be delayed", "credential_request_id", rec.ID)
 			}
 		}
 	}
@@ -219,7 +223,7 @@ func buildCredData(item dto.CredentialItem) (json.RawMessage, error) {
 }
 
 func (s *CredentialService) ProcessCredentialRequest(ctx context.Context, reqID uuid.UUID) error {
-	credReq, err := s.credReqRepo.FindByID(reqID)
+	credReq, err := s.credReqRepo.FindByID(ctx, reqID)
 	if err != nil {
 		return fmt.Errorf("find credential request: %w", err)
 	}
@@ -228,17 +232,18 @@ func (s *CredentialService) ProcessCredentialRequest(ctx context.Context, reqID 
 	if enumType == nil {
 		return fmt.Errorf("unknown cred_type enum ID: %s", credReq.CredType)
 	}
+	trace.SpanFromContext(ctx).SetAttributes(telemetry.AttrCredType.String(enumType.Value))
 
 	result, err := s.identityService.VerifyIdentity(ctx, enumType.Value, credReq.CredData)
 	if err != nil {
-		return s.handleProcessingError(credReq, err)
+		return s.handleProcessingError(ctx, enumType.Value, credReq, err)
 	}
 
 	if !result.Success {
-		return s.handleVerificationFailure(credReq, result)
+		return s.handleVerificationFailure(ctx, enumType.Value, credReq, result)
 	}
 
-	return s.handleVerificationSuccess(credReq, result)
+	return s.handleVerificationSuccess(ctx, enumType.Value, credReq, result)
 }
 
 // verifierIDFromProvider resolves the CRED_VERIFIER enum row for the
@@ -254,7 +259,7 @@ func (s *CredentialService) verifierIDFromProvider(providerName string) *uuid.UU
 	return &id
 }
 
-func (s *CredentialService) handleVerificationSuccess(credReq *models.CredentialRequest, result *credential.VerificationResult) error {
+func (s *CredentialService) handleVerificationSuccess(ctx context.Context, credType string, credReq *models.CredentialRequest, result *credential.VerificationResult) error {
 	verifiedID := s.enumCache.VerificationStatusID(models.VerificationVerified)
 	verifierID := s.verifierIDFromProvider(result.Provider)
 	credReq.Verifier = verifierID
@@ -263,7 +268,7 @@ func (s *CredentialService) handleVerificationSuccess(credReq *models.Credential
 	if err != nil {
 		return fmt.Errorf("marshal evidences: %w", err)
 	}
-	if err := s.credReqRepo.UpdateVerificationResult(credReq.ID, verifiedID, verifierID, evidencesJSON); err != nil {
+	if err := s.credReqRepo.UpdateVerificationResult(ctx, credReq.ID, verifiedID, verifierID, evidencesJSON); err != nil {
 		return fmt.Errorf("update verification result: %w", err)
 	}
 
@@ -271,11 +276,12 @@ func (s *CredentialService) handleVerificationSuccess(credReq *models.Credential
 	if err != nil {
 		return fmt.Errorf("build credential registry entry: %w", err)
 	}
-	if err := s.credRepo.Create(cred); err != nil {
+	if err := s.credRepo.Create(ctx, cred); err != nil {
 		return fmt.Errorf("create credential registry entry: %w", err)
 	}
 
-	log.Printf("credential request %s verified successfully", credReq.ID)
+	telemetry.RecordWorkerProcessed(ctx, credType, telemetry.WorkerVerified)
+	slog.InfoContext(ctx, "credential request verified", "credential_request_id", credReq.ID)
 	return nil
 }
 
@@ -303,7 +309,7 @@ func buildVerifiedCredential(credReq *models.CredentialRequest, result *credenti
 	}, nil
 }
 
-func (s *CredentialService) handleVerificationFailure(credReq *models.CredentialRequest, result *credential.VerificationResult) error {
+func (s *CredentialService) handleVerificationFailure(ctx context.Context, credType string, credReq *models.CredentialRequest, result *credential.VerificationResult) error {
 	failedID := s.enumCache.VerificationStatusID(models.VerificationFailed)
 	verifierID := s.verifierIDFromProvider(result.Provider)
 
@@ -311,46 +317,50 @@ func (s *CredentialService) handleVerificationFailure(credReq *models.Credential
 
 	// TODO: Retry classification is TBD per spec. For now, check retry_count < max_retries.
 	if credReq.RetryCount < credReq.MaxRetries {
-		if err := s.credReqRepo.RecordRetry(credReq.ID); err != nil {
-			log.Printf("error recording retry for %s: %v", credReq.ID, err)
+		if err := s.credReqRepo.RecordRetry(ctx, credReq.ID); err != nil {
+			slog.ErrorContext(ctx, "recording retry failed", "credential_request_id", credReq.ID, "error", err)
 		}
 		pendingID := s.enumCache.VerificationStatusID(models.VerificationPending)
-		if err := s.credReqRepo.RecordFailure(credReq.ID, pendingID, verifierID, errJSON); err != nil {
+		if err := s.credReqRepo.RecordFailure(ctx, credReq.ID, pendingID, verifierID, errJSON); err != nil {
 			return fmt.Errorf("record retry failure: %w", err)
 		}
-		log.Printf("credential request %s scheduled for retry (%d/%d)", credReq.ID, credReq.RetryCount+1, credReq.MaxRetries)
+		telemetry.RecordWorkerProcessed(ctx, credType, telemetry.WorkerRetry)
+		slog.InfoContext(ctx, "credential request scheduled for retry",
+			"credential_request_id", credReq.ID, "attempt", credReq.RetryCount+1, "max_retries", credReq.MaxRetries)
 
 		select {
 		case s.jobCh <- credReq.ID:
 		default:
-			log.Printf("warning: job channel full, retry for %s may be delayed", credReq.ID)
+			slog.WarnContext(ctx, "job channel full, retry may be delayed", "credential_request_id", credReq.ID)
 		}
 		return nil
 	}
 
-	if err := s.credReqRepo.RecordFailure(credReq.ID, failedID, verifierID, errJSON); err != nil {
+	if err := s.credReqRepo.RecordFailure(ctx, credReq.ID, failedID, verifierID, errJSON); err != nil {
 		return fmt.Errorf("record final failure: %w", err)
 	}
-	log.Printf("credential request %s failed permanently", credReq.ID)
+	telemetry.RecordWorkerProcessed(ctx, credType, telemetry.WorkerFailed)
+	slog.WarnContext(ctx, "credential request failed permanently", "credential_request_id", credReq.ID)
 	return nil
 }
 
-func (s *CredentialService) handleProcessingError(credReq *models.CredentialRequest, processErr error) error {
+func (s *CredentialService) handleProcessingError(ctx context.Context, credType string, credReq *models.CredentialRequest, processErr error) error {
 	failedID := s.enumCache.VerificationStatusID(models.VerificationFailed)
 	errJSON, _ := json.Marshal(map[string]string{"error": processErr.Error()})
 
-	if err := s.credReqRepo.RecordFailure(credReq.ID, failedID, nil, errJSON); err != nil {
+	if err := s.credReqRepo.RecordFailure(ctx, credReq.ID, failedID, nil, errJSON); err != nil {
 		return fmt.Errorf("record processing error: %w", err)
 	}
-	log.Printf("credential request %s processing error: %v", credReq.ID, processErr)
+	telemetry.RecordWorkerProcessed(ctx, credType, telemetry.WorkerFailed)
+	slog.ErrorContext(ctx, "credential request processing error", "credential_request_id", credReq.ID, "error", processErr)
 	return nil
 }
 
 // GetResults returns the per-credential results of a previously submitted
 // /credential request. The provider's raw response is only included when
 // verbose is true.
-func (s *CredentialService) GetResults(requestID uuid.UUID, verbose bool) (*dto.GetCredentialResultsResponse, error) {
-	records, err := s.credReqRepo.FindByRequestID(requestID)
+func (s *CredentialService) GetResults(ctx context.Context, requestID uuid.UUID, verbose bool) (*dto.GetCredentialResultsResponse, error) {
+	records, err := s.credReqRepo.FindByRequestID(ctx, requestID)
 	if err != nil {
 		return nil, fmt.Errorf("find credential requests: %w", err)
 	}

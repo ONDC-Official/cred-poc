@@ -32,19 +32,29 @@ func loadVerifierRegistry(typesDir string, gateway *provider.Gateway) (*credenti
 	return registry, nil
 }
 
+// credentialStack is everything that needs a database, built together because these
+// parts share one enum cache and one repository.
+type credentialStack struct {
+	service     *service.CredentialService
+	handler     *handlers.CredentialHandler
+	worker      *worker.CredentialWorker
+	logger      *service.VerifyIdentityLogger
+	logsHandler *handlers.SubscriberLogHandler
+}
+
 func setupCredentialStack(
 	db *gorm.DB,
 	registry *credential.VerifierRegistry,
 	identityService *service.IdentityService,
 	defaultValidity time.Duration,
-) (*service.CredentialService, *handlers.CredentialHandler, *worker.CredentialWorker, error) {
+) (*credentialStack, error) {
 	if db == nil {
-		return nil, nil, nil, fmt.Errorf("database required for credential stack")
+		return nil, fmt.Errorf("database required for credential stack")
 	}
 
 	enumCache, err := models.LoadEnumCache(db)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to load enum cache: %w", err)
+		return nil, fmt.Errorf("failed to load enum cache: %w", err)
 	}
 
 	credReqRepo := repository.NewCredentialRequestRepository(db)
@@ -54,5 +64,11 @@ func setupCredentialStack(
 	credHandler := handlers.NewCredentialHandler(credService)
 	credWorker := worker.NewCredentialWorker(credService, credReqRepo, enumCache)
 
-	return credService, credHandler, credWorker, nil
+	return &credentialStack{
+		service: credService,
+		handler: credHandler,
+		worker:  credWorker,
+		logger:      service.NewVerifyIdentityLogger(credReqRepo, enumCache, registry),
+		logsHandler: handlers.NewSubscriberLogHandler(credReqRepo, enumCache),
+	}, nil
 }

@@ -111,7 +111,7 @@ func TestPanHandlerProcessSendsIDOnlyToDigio(t *testing.T) {
 	}
 }
 
-func TestPanHandlerProcessFallsBackToMockOnDigioRejection(t *testing.T) {
+func TestPanHandlerProcessDigioRejectionIsFailure(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,21 +126,21 @@ func TestPanHandlerProcessFallsBackToMockOnDigioRejection(t *testing.T) {
 		Token:   "test-token",
 		Timeout: 5 * time.Second,
 	})
-	// PAN.v1.yaml lists digio then mock — a Digio rejection should fall
-	// through to the mock provider, end to end, and succeed via it.
-	handler := testVerifierWithRealMock(t, digioClient, "PAN")
+	// PAN.v1.yaml lists only digio, so a Digio rejection is the final answer: an
+	// invalid PAN must never come back as a success from a fallback provider.
+	handler := testVerifier(t, digioClient, "PAN")
 
 	result, err := handler.Process(context.Background(), json.RawMessage(`{"id_no":"ABCDE1234F"}`))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Success {
-		t.Fatalf("expected the mock fallback provider to succeed after Digio's rejection, got: %+v", result)
+	if result.Success {
+		t.Fatalf("expected Digio's rejection to be a failure, got: %+v", result)
 	}
-	if result.Provider != "mock" {
-		t.Fatalf("expected Provider to be %q, got %q", "mock", result.Provider)
+	if result.Provider != "digio" {
+		t.Fatalf("expected Provider to be %q, got %q", "digio", result.Provider)
 	}
 	if len(result.Evidences) != 2 {
-		t.Fatalf("expected evidences from the final (mock) attempt, got %d: %+v", len(result.Evidences), result.Evidences)
+		t.Fatalf("expected request and response evidences from the Digio attempt, got %d: %+v", len(result.Evidences), result.Evidences)
 	}
 }

@@ -6,13 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"credential-service/pkg/ondcauth"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const (
@@ -84,7 +86,9 @@ func NewONDCRegistryClient(cfg ONDCRegistryClientConfig) *ONDCRegistryClient {
 	}
 	client := cfg.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: timeout}
+		// Client spans and http.client.* metrics, with trace context propagated to the ONDC
+		// Registry. An injected HTTPClient is used as given.
+		client = &http.Client{Timeout: timeout, Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	}
 	ttl := cfg.CacheTTL
 	if ttl <= 0 {
@@ -129,11 +133,13 @@ func (c *ONDCRegistryClient) LookupSubscriberKey(ctx context.Context, subscriber
 			continue
 		}
 		if !strings.EqualFold(strings.TrimSpace(key.Status), statusSubscribed) {
-			log.Printf("registry lookup: skipping key for subscriber %q (ukid %q) with status %q", subscriberID, ukid, key.Status)
+			slog.WarnContext(ctx, "registry lookup: skipping key that is not SUBSCRIBED",
+				"subscriber_id", subscriberID, "ukid", ukid, "status", key.Status)
 			continue
 		}
 		if !withinValidity(key, now) {
-			log.Printf("registry lookup: skipping key for subscriber %q (ukid %q) outside validity window %q..%q", subscriberID, ukid, key.ValidFrom, key.ValidUntil)
+			slog.WarnContext(ctx, "registry lookup: skipping key outside its validity window",
+				"subscriber_id", subscriberID, "ukid", ukid, "valid_from", key.ValidFrom, "valid_until", key.ValidUntil)
 			continue
 		}
 		pubKey := strings.TrimSpace(key.SigningPublicKey)
@@ -141,7 +147,7 @@ func (c *ONDCRegistryClient) LookupSubscriberKey(ctx context.Context, subscriber
 			continue
 		}
 		c.storeKey(cacheKey, pubKey)
-		log.Printf("registry lookup: resolved signing key for subscriber %q (ukid %q)", subscriberID, ukid)
+		slog.InfoContext(ctx, "registry lookup: resolved signing key", "subscriber_id", subscriberID, "ukid", ukid)
 		return pubKey, nil
 	}
 

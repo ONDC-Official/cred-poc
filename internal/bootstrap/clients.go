@@ -2,7 +2,7 @@ package bootstrap
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"credential-service/internal/auth"
@@ -34,7 +34,7 @@ func setupProviderGateway(cfg *config.Config) (*provider.Gateway, error) {
 
 func setupAuthVerifier(cfg *config.Config) (*auth.Verifier, error) {
 	if !cfg.Auth.Enabled {
-		log.Println("signature auth disabled (CREDENTIAL_SERVICE_AUTH_ENABLED=false); /verify-identity and /credential are open")
+		slog.Info("signature auth disabled (CREDENTIAL_SERVICE_AUTH_ENABLED=false); /verify-identity and /credential are open")
 		return nil, nil
 	}
 	var registryClient auth.RegistryClient
@@ -63,14 +63,14 @@ func setupAuthVerifier(cfg *config.Config) (*auth.Verifier, error) {
 			CacheTTL:     cfg.Auth.LookupCacheTTL,
 			Timeout:      cfg.Auth.LookupTimeout,
 		})
-		log.Printf("signature auth enabled; signing keys resolved from ONDC Registry at %s", cfg.Auth.LookupURL)
+		slog.Info("signature auth enabled; signing keys resolved from ONDC Registry", "lookup_url", cfg.Auth.LookupURL)
 	}
 
 	if registryClient == nil && cfg.Auth.RegistrySigningPublicKey == "" {
 		return nil, fmt.Errorf("CREDENTIAL_SERVICE_AUTH_LOOKUP_URL or CREDENTIAL_SERVICE_AUTH_REGISTRY_SIGNING_PUBLIC_KEY is required when CREDENTIAL_SERVICE_AUTH_ENABLED=true")
 	}
 	if registryClient == nil {
-		log.Println("signature auth enabled; verifying against the static configured signing public key")
+		slog.Info("signature auth enabled; verifying against the static configured signing public key")
 	}
 
 	return auth.NewVerifier(auth.Config{

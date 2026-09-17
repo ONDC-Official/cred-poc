@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -227,7 +228,7 @@ type fakeCredentialCreator struct {
 	created []*models.Credential
 }
 
-func (f *fakeCredentialCreator) Create(cred *models.Credential) error {
+func (f *fakeCredentialCreator) Create(_ context.Context, cred *models.Credential) error {
 	f.created = append(f.created, cred)
 	return nil
 }

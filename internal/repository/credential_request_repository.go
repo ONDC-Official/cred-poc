@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -19,8 +20,8 @@ func NewCredentialRequestRepository(db *gorm.DB) *CredentialRequestRepository {
 	return &CredentialRequestRepository{db: db}
 }
 
-func (r *CredentialRequestRepository) Create(req *models.CredentialRequest) error {
-	return r.db.Create(req).Error
+func (r *CredentialRequestRepository) Create(ctx context.Context, req *models.CredentialRequest) error {
+	return r.db.WithContext(ctx).Create(req).Error
 }
 
 // CreateManyIfNotInFlight checks whether a request for the same
@@ -33,11 +34,12 @@ func (r *CredentialRequestRepository) Create(req *models.CredentialRequest) erro
 // insert — the second blocks until the first commits, then finds and
 // reuses the first's rows.
 func (r *CredentialRequestRepository) CreateManyIfNotInFlight(
+	ctx context.Context,
 	participantID, payloadHash string,
 	pendingStatusID uuid.UUID,
 	build func() []models.CredentialRequest,
 ) (records []models.CredentialRequest, reused bool, err error) {
-	err = r.db.Transaction(func(tx *gorm.DB) error {
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		lockKey := participantID + ":" + payloadHash
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?)::bigint)", lockKey).Error; err != nil {
 			return fmt.Errorf("acquire dedup lock: %w", err)
@@ -66,9 +68,9 @@ func (r *CredentialRequestRepository) CreateManyIfNotInFlight(
 	return records, reused, err
 }
 
-func (r *CredentialRequestRepository) FindPending(statusID uuid.UUID, limit int) ([]models.CredentialRequest, error) {
+func (r *CredentialRequestRepository) FindPending(ctx context.Context, statusID uuid.UUID, limit int) ([]models.CredentialRequest, error) {
 	var results []models.CredentialRequest
-	err := r.db.
+	err := r.db.WithContext(ctx).
 		Where("verification_status = ?", statusID).
 		Order("created_at ASC").
 		Limit(limit).
@@ -76,23 +78,23 @@ func (r *CredentialRequestRepository) FindPending(statusID uuid.UUID, limit int)
 	return results, err
 }
 
-func (r *CredentialRequestRepository) FindByID(id uuid.UUID) (*models.CredentialRequest, error) {
+func (r *CredentialRequestRepository) FindByID(ctx context.Context, id uuid.UUID) (*models.CredentialRequest, error) {
 	var req models.CredentialRequest
-	err := r.db.Where("id = ?", id).First(&req).Error
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&req).Error
 	if err != nil {
 		return nil, err
 	}
 	return &req, nil
 }
 
-func (r *CredentialRequestRepository) FindByRequestID(requestID uuid.UUID) ([]models.CredentialRequest, error) {
+func (r *CredentialRequestRepository) FindByRequestID(ctx context.Context, requestID uuid.UUID) ([]models.CredentialRequest, error) {
 	var results []models.CredentialRequest
-	err := r.db.Where("request_id = ?", requestID).Find(&results).Error
+	err := r.db.WithContext(ctx).Where("request_id = ?", requestID).Find(&results).Error
 	return results, err
 }
 
-func (r *CredentialRequestRepository) UpdateStatus(id uuid.UUID, statusID uuid.UUID) error {
-	return r.db.Model(&models.CredentialRequest{}).
+func (r *CredentialRequestRepository) UpdateStatus(ctx context.Context, id uuid.UUID, statusID uuid.UUID) error {
+	return r.db.WithContext(ctx).Model(&models.CredentialRequest{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"verification_status": statusID,
@@ -100,8 +102,8 @@ func (r *CredentialRequestRepository) UpdateStatus(id uuid.UUID, statusID uuid.U
 		}).Error
 }
 
-func (r *CredentialRequestRepository) RecordFailure(id uuid.UUID, statusID uuid.UUID, verifierID *uuid.UUID, verificationErrors json.RawMessage) error {
-	return r.db.Model(&models.CredentialRequest{}).
+func (r *CredentialRequestRepository) RecordFailure(ctx context.Context, id uuid.UUID, statusID uuid.UUID, verifierID *uuid.UUID, verificationErrors json.RawMessage) error {
+	return r.db.WithContext(ctx).Model(&models.CredentialRequest{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"verification_status": statusID,
@@ -111,15 +113,52 @@ func (r *CredentialRequestRepository) RecordFailure(id uuid.UUID, statusID uuid.
 		}).Error
 }
 
-func (r *CredentialRequestRepository) RecordRetry(id uuid.UUID) error {
-	return r.db.Model(&models.CredentialRequest{}).
+func (r *CredentialRequestRepository) RecordRetry(ctx context.Context, id uuid.UUID) error {
+	return r.db.WithContext(ctx).Model(&models.CredentialRequest{}).
 		Where("id = ?", id).
 		UpdateColumn("retry_count", gorm.Expr("retry_count + 1")).
 		UpdateColumn("updated_at", time.Now()).Error
 }
 
-func (r *CredentialRequestRepository) UpdateVerificationResult(id uuid.UUID, statusID uuid.UUID, verifierID *uuid.UUID, evidences json.RawMessage) error {
-	return r.db.Model(&models.CredentialRequest{}).
+// SubscriberLogFilter selects one subscriber's /verify-identity rows for the read API.
+type SubscriberLogFilter struct {
+	SubscriberID string
+	From         time.Time
+	To           time.Time
+	Limit        int
+	Offset       int
+}
+
+// subscriberLogQuery is shared by the list and the count so the two always agree.
+func (r *CredentialRequestRepository) subscriberLogQuery(ctx context.Context, f SubscriberLogFilter) *gorm.DB {
+	return r.db.WithContext(ctx).Model(&models.CredentialRequest{}).
+		Where("subscriber_id = ?", f.SubscriberID).
+		// /verify-identity rows only: a /credential submission always fills both.
+		Where("participant_id = '' AND payload_hash = ''").
+		Where("created_at >= ? AND created_at < ?", f.From, f.To)
+}
+
+// ListBySubscriber returns one page, newest first; the id tiebreak keeps rows sharing
+// a timestamp from swapping places between pages.
+func (r *CredentialRequestRepository) ListBySubscriber(ctx context.Context, f SubscriberLogFilter) ([]models.CredentialRequest, error) {
+	var results []models.CredentialRequest
+	err := r.subscriberLogQuery(ctx, f).
+		Order("created_at DESC, id DESC").
+		Limit(f.Limit).
+		Offset(f.Offset).
+		Find(&results).Error
+	return results, err
+}
+
+// CountBySubscriber counts every row in the window, ignoring Limit/Offset.
+func (r *CredentialRequestRepository) CountBySubscriber(ctx context.Context, f SubscriberLogFilter) (int64, error) {
+	var total int64
+	err := r.subscriberLogQuery(ctx, f).Count(&total).Error
+	return total, err
+}
+
+func (r *CredentialRequestRepository) UpdateVerificationResult(ctx context.Context, id uuid.UUID, statusID uuid.UUID, verifierID *uuid.UUID, evidences json.RawMessage) error {
+	return r.db.WithContext(ctx).Model(&models.CredentialRequest{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"verification_status": statusID,

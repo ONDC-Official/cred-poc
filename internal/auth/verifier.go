@@ -4,9 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"credential-service/pkg/ondcauth"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+)
+
+// Span attributes set on the inbound request span. Never the header value itself.
+const (
+	attrAuthResult       = attribute.Key("auth.result")
+	attrAuthSubscriberID = attribute.Key("auth.subscriber_id")
 )
 
 var (
@@ -53,6 +62,12 @@ func NewVerifier(cfg Config) (*Verifier, error) {
 	}, nil
 }
 
+// Identity is the ONDC caller a verified Authorization header belongs to.
+type Identity struct {
+	SubscriberID string
+	UniqueKeyID  string
+}
+
 // Verify checks the ONDC Authorization header against the exact raw request body.
 // It returns nil only when the signature verifies under a key the registry vouches for.
 func (v *Verifier) Verify(authHeader, rawBody string) error {
@@ -62,19 +77,32 @@ func (v *Verifier) Verify(authHeader, rawBody string) error {
 // VerifyContext is Verify with a caller-supplied context, so the outbound registry
 // lookup is bounded by the inbound request's lifetime.
 func (v *Verifier) VerifyContext(ctx context.Context, authHeader, rawBody string) error {
+	_, err := v.VerifyRequest(ctx, authHeader, rawBody)
+	return err
+}
+
+// VerifyRequest is VerifyContext that also returns who the caller is, so a handler
+// need not re-parse the header.
+func (v *Verifier) VerifyRequest(ctx context.Context, authHeader, rawBody string) (Identity, error) {
+	span := trace.SpanFromContext(ctx)
 	if authHeader == "" {
-		return ErrMissingAuthorization
+		span.SetAttributes(attrAuthResult.String("missing_header"))
+		return Identity{}, ErrMissingAuthorization
 	}
 
 	subscriberID, uniqueKeyID, err := ondcauth.ParseKeyID(authHeader)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrUnauthorized, err)
+		span.SetAttributes(attrAuthResult.String("malformed_key_id"))
+		return Identity{}, fmt.Errorf("%w: %v", ErrUnauthorized, err)
 	}
+	span.SetAttributes(attrAuthSubscriberID.String(subscriberID))
 
 	publicKey, err := v.resolvePublicKey(ctx, subscriberID, uniqueKeyID)
 	if err != nil {
-		log.Printf("auth: key resolution failed for subscriber %q (ukid %q): %v", subscriberID, uniqueKeyID, err)
-		return err
+		span.SetAttributes(attrAuthResult.String("key_resolution_failed"))
+		slog.WarnContext(ctx, "auth: key resolution failed",
+			"subscriber_id", subscriberID, "ukid", uniqueKeyID, "error", err)
+		return Identity{}, err
 	}
 
 	ok, err := ondcauth.VerifyAuthorisationHeader(ondcauth.VerifyAuthorisationHeaderParams{
@@ -83,16 +111,20 @@ func (v *Verifier) VerifyContext(ctx context.Context, authHeader, rawBody string
 		PublicKey:  publicKey,
 	})
 	if err != nil {
-		log.Printf("auth: signature verification failed for subscriber %q (ukid %q): %v", subscriberID, uniqueKeyID, err)
-		return fmt.Errorf("%w: %v", ErrUnauthorized, err)
+		span.SetAttributes(attrAuthResult.String("verification_error"))
+		slog.WarnContext(ctx, "auth: signature verification failed",
+			"subscriber_id", subscriberID, "ukid", uniqueKeyID, "error", err)
+		return Identity{}, fmt.Errorf("%w: %v", ErrUnauthorized, err)
 	}
 	if !ok {
-		log.Printf("auth: signature invalid for subscriber %q (ukid %q)", subscriberID, uniqueKeyID)
-		return ErrUnauthorized
+		span.SetAttributes(attrAuthResult.String("invalid_signature"))
+		slog.WarnContext(ctx, "auth: signature invalid", "subscriber_id", subscriberID, "ukid", uniqueKeyID)
+		return Identity{}, ErrUnauthorized
 	}
 
-	log.Printf("auth: request authenticated for subscriber %q (ukid %q)", subscriberID, uniqueKeyID)
-	return nil
+	span.SetAttributes(attrAuthResult.String("ok"))
+	slog.InfoContext(ctx, "auth: request authenticated", "subscriber_id", subscriberID, "ukid", uniqueKeyID)
+	return Identity{SubscriberID: subscriberID, UniqueKeyID: uniqueKeyID}, nil
 }
 
 func (v *Verifier) resolvePublicKey(ctx context.Context, subscriberID, uniqueKeyID string) (string, error) {
