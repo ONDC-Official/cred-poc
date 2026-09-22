@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"credential-service/internal/config"
 
@@ -83,34 +84,40 @@ func Setup(ctx context.Context, cfg *config.Config) (Shutdown, error) {
 	shutdowns = append(shutdowns, tracerProvider.Shutdown)
 	otel.SetTracerProvider(tracerProvider)
 
-	metricExporter, err := otlpmetrichttp.New(ctx)
-	if err != nil {
-		return fail(fmt.Errorf("create OTLP metric exporter: %w", err))
-	}
-	meterProvider := sdkmetric.NewMeterProvider(
-		sdkmetric.WithResource(res),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
-	)
-	shutdowns = append(shutdowns, meterProvider.Shutdown)
-	otel.SetMeterProvider(meterProvider)
+	metricsEnabled := os.Getenv("OTEL_METRICS_EXPORTER") != "none"
+	if metricsEnabled {
+		metricExporter, err := otlpmetrichttp.New(ctx)
+		if err != nil {
+			return fail(fmt.Errorf("create OTLP metric exporter: %w", err))
+		}
+		meterProvider := sdkmetric.NewMeterProvider(
+			sdkmetric.WithResource(res),
+			sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
+		)
+		shutdowns = append(shutdowns, meterProvider.Shutdown)
+		otel.SetMeterProvider(meterProvider)
 
-	logExporter, err := otlploghttp.New(ctx)
-	if err != nil {
-		return fail(fmt.Errorf("create OTLP log exporter: %w", err))
-	}
-	loggerProvider := sdklog.NewLoggerProvider(
-		sdklog.WithResource(res),
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
-	)
-	shutdowns = append(shutdowns, loggerProvider.Shutdown)
-	global.SetLoggerProvider(loggerProvider)
-
-	if err := runtime.Start(); err != nil {
-		return fail(fmt.Errorf("start runtime metrics: %w", err))
+		if err := runtime.Start(); err != nil {
+			return fail(fmt.Errorf("start runtime metrics: %w", err))
+		}
 	}
 
-	slog.SetDefault(NewLogger(true))
-	slog.InfoContext(ctx, "telemetry enabled; exporting traces, metrics and logs over OTLP/HTTP")
+	logsEnabled := os.Getenv("OTEL_LOGS_EXPORTER") != "none"
+	if logsEnabled {
+		logExporter, err := otlploghttp.New(ctx)
+		if err != nil {
+			return fail(fmt.Errorf("create OTLP log exporter: %w", err))
+		}
+		loggerProvider := sdklog.NewLoggerProvider(
+			sdklog.WithResource(res),
+			sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
+		)
+		shutdowns = append(shutdowns, loggerProvider.Shutdown)
+		global.SetLoggerProvider(loggerProvider)
+	}
+
+	slog.SetDefault(NewLogger(logsEnabled))
+	slog.InfoContext(ctx, "telemetry enabled; exporting traces over OTLP/HTTP")
 	return shutdown, nil
 }
 
