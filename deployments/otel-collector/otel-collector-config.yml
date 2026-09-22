@@ -1,0 +1,65 @@
+# ==============================================================================
+# OpenTelemetry Collector Configuration (Server Monitoring Network)
+# ==============================================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Protect against memory exhaustion under high log volume
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+
+  # Batch telemetries before forwarding
+  batch:
+    send_batch_size: 8192
+    timeout: 1s
+
+exporters:
+  # Debug exporter to inspect incoming logs/traces in `docker logs -f otel-collector`
+  debug:
+    verbosity: basic
+
+  # Export to Loki running on the same 'monitoring' network
+  # Note: If your Loki container has a different container_name, replace 'loki' with that name.
+  
+  # Option 1: Modern Loki (v3.0+) native OTLP ingest (Recommended)
+  otlphttp/loki:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
+
+  # Option 2: Legacy Loki (< v3.0) push API (Uncomment if Loki is v2.x)
+  # loki:
+  #   endpoint: "http://loki:3100/loki/api/v1/push"
+  #   default_labels_enabled:
+  #     exporter: false
+  #     job: true
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki, debug]
+
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+
+  telemetry:
+    logs:
+      level: info
