@@ -13,7 +13,7 @@ func registerMiddleware(app *fiber.App) {
 	// Server span per request, continuing an inbound traceparent, stored in c.UserContext().
 	// Handlers must pass c.UserContext() (not c.Context()) downstream or the trace breaks.
 	app.Use(otelfiber.Middleware(otelfiber.WithNext(isHealthCheck)))
-	app.Use(appmiddleware.Logger(isHealthCheck))
+	app.Use(appmiddleware.Logger(nil))
 }
 
 // isHealthCheck skips /health and /, which the ALB and compose healthcheck hit.
