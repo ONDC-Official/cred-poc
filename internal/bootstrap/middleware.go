@@ -16,7 +16,7 @@ func registerMiddleware(app *fiber.App) {
 	app.Use(appmiddleware.Logger(isHealthCheck))
 }
 
-// isHealthCheck skips /health, which the compose healthcheck hits every 10 seconds.
+// isHealthCheck skips /health and /, which the ALB and compose healthcheck hit.
 func isHealthCheck(c *fiber.Ctx) bool {
-	return c.Path() == "/health"
+	return c.Path() == "/health" || c.Path() == "/"
 }

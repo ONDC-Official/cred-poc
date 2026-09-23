@@ -13,6 +13,7 @@ func registerRoutes(app *fiber.App, h *Handlers, verifier *auth.Verifier) {
 
 func RegisterRoutes(app *fiber.App, h *Handlers, verifier *auth.Verifier) {
 	app.Get("/health", h.Health.Check)
+	app.Get("/", h.Health.Check)
 
 	// Deliberately outside the protected group: you need this to produce the header the
 	// group requires. It signs anything with this service's own key, so it is registered
