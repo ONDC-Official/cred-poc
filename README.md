@@ -21,7 +21,7 @@ the result in the same call.
 ## Endpoint
 
 ```
-POST https://<credential-service-host>/verify
+POST https://workbench.ondc.tech/cred/verify
 ```
 
 | Header | Value |
