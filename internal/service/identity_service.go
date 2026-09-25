@@ -7,7 +7,7 @@ import (
 	"credential-service/internal/credential"
 )
 
-// IdentityService is the single function both /verify-identity and the
+// IdentityService is the single function both /verify and the
 // async /credential flow call through to verify a credential against
 // the configured provider — CredentialService.ProcessCredentialRequest
 // calls VerifyIdentity directly rather than resolving its own handler

@@ -114,13 +114,13 @@ func RunMigrations(db *gorm.DB) error {
 				END IF;
 			END $$;
 		`},
-		// /verify-identity rows carry the caller; /credential rows keep the '' default.
+		// /verify rows carry the caller; /credential rows keep the '' default.
 		{"add subscriber_id to credential_requests", `
 			ALTER TABLE credential_requests ADD COLUMN IF NOT EXISTS subscriber_id TEXT NOT NULL DEFAULT '';
 			CREATE INDEX IF NOT EXISTS idx_credential_requests_subscriber
 				ON credential_requests(subscriber_id, created_at DESC, id DESC);
 		`},
-		// Verbatim bodies of a /verify-identity call; cred_data is reshaped and
+		// Verbatim bodies of a /verify call; cred_data is reshaped and
 		// evidences is the provider exchange, so neither one is these.
 		{"add request/response body to credential_requests", `
 			ALTER TABLE credential_requests ADD COLUMN IF NOT EXISTS request_body TEXT;

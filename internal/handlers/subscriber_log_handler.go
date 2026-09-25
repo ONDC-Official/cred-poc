@@ -20,7 +20,7 @@ const (
 	maxLogWindow     = 31 * 24 * time.Hour
 )
 
-// SubscriberLogHandler serves GET /subscriber/:id: one subscriber's /verify-identity
+// SubscriberLogHandler serves GET /subscriber/:id: one subscriber's /verify
 // calls, newest first, in pages.
 type SubscriberLogHandler struct {
 	repo      *repository.CredentialRequestRepository

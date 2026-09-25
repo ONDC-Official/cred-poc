@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// VerifyIdentityLogger persists one credential_requests row per /verify-identity call.
+// VerifyIdentityLogger persists one credential_requests row per /verify call.
 //
 // Rows carry a terminal status and empty participant_id/payload_hash, which keeps them
 // out of the worker (it polls PENDING) and out of the duplicate-submission check (it

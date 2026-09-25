@@ -22,13 +22,22 @@ func RegisterRoutes(app *fiber.App, h *Handlers, verifier *auth.Verifier) {
 		app.Post("/generate-header", h.Auth.GenerateHeader)
 	}
 
-	// Outside the protected group: authenticated by a static token, not a signature.
-	if h.SubscriberLogs != nil {
-		app.Get("/subscriber/:id", appmiddleware.AccessToken(h.accessToken), h.SubscriberLogs.List)
+	// Disabled for now: not to be exposed. Outside the protected group when enabled:
+	// authenticated by a static token, not a signature.
+	// if h.SubscriberLogs != nil {
+	// 	app.Get("/subscriber/:id", appmiddleware.AccessToken(h.accessToken), h.SubscriberLogs.List)
+	// }
+
+	// Auth is attached per route, not via app.Group("", ...): an empty-prefix group
+	// runs its middleware on every path, so unknown or disabled routes would answer
+	// 401 instead of 404 and look like they exist.
+	captureRawBody := appmiddleware.CaptureRawBody()
+	signatureAuth := appmiddleware.SignatureAuth(verifier)
+	protected := func(handler fiber.Handler) []fiber.Handler {
+		return []fiber.Handler{captureRawBody, signatureAuth, handler}
 	}
 
-	protected := app.Group("", appmiddleware.CaptureRawBody(), appmiddleware.SignatureAuth(verifier))
-	protected.Post("/verify-identity", h.Identity.VerifyIdentity)
+	app.Post("/verify", protected(h.Identity.VerifyIdentity)...)
 
 	if h.Credential != nil {
 		// Registry calls these on behalf of an onboarded participant_id.
@@ -38,7 +47,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, verifier *auth.Verifier) {
 		// ?request_id= query param rather than a path segment — a bare path
 		// segment here would be ambiguous between "the batch's request_id"
 		// and "one credential's own id".
-		protected.Post("/credential", h.Credential.SubmitCredentials)
-		protected.Get("/credential", h.Credential.GetResults)
+		app.Post("/credential", protected(h.Credential.SubmitCredentials)...)
+		app.Get("/credential", protected(h.Credential.GetResults)...)
 	}
 }

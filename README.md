@@ -11,7 +11,7 @@ ONDC (Open Network for Digital Commerce) network through a KYC provider.
 - **Provider Fallback**: Providers tried in order; the first success wins
 
 
-## POST /verify-identity
+## POST /verify
 
 Checks whether a business credential (**PAN**, **GST**, **FSSAI** or **UDYAM**) is valid and returns
 the result in the same call.
@@ -21,7 +21,7 @@ the result in the same call.
 ## Endpoint
 
 ```
-POST https://<credential-service-host>/verify-identity
+POST https://<credential-service-host>/verify
 ```
 
 | Header | Value |
@@ -71,7 +71,7 @@ POST https://<credential-service-host>/verify-identity
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `verbose` | boolean | no | `POST /verify-identity?verbose=true` adds `provider_response`, the verification source's raw reply, to the response |
+| `verbose` | boolean | no | `POST /verify?verbose=true` adds `provider_response`, the verification source's raw reply, to the response |
 
 ---
 
@@ -200,7 +200,7 @@ function authorizationHeader(body) {
 
 async function verifyIdentity(credType, credId) {
   const body = JSON.stringify({ cred_type: credType, cred_id: credId });
-  const res = await fetch(`${BASE_URL}/verify-identity`, {
+  const res = await fetch(`${BASE_URL}/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: authorizationHeader(body) },
     body,
@@ -240,7 +240,7 @@ def authorization_header(body: str) -> str:
 
 def verify_identity(cred_type: str, cred_id: str):
     body = json.dumps({"cred_type": cred_type, "cred_id": cred_id}, separators=(",", ":"))
-    res = requests.post(f"{BASE_URL}/verify-identity", data=body.encode(), timeout=90,
+    res = requests.post(f"{BASE_URL}/verify", data=body.encode(), timeout=90,
                         headers={"Content-Type": "application/json", "Authorization": authorization_header(body)})
     result = res.json()
     verified = res.status_code == 200 and result.get("success") is True

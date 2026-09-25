@@ -120,7 +120,7 @@ func (r *CredentialRequestRepository) RecordRetry(ctx context.Context, id uuid.U
 		UpdateColumn("updated_at", time.Now()).Error
 }
 
-// SubscriberLogFilter selects one subscriber's /verify-identity rows for the read API.
+// SubscriberLogFilter selects one subscriber's /verify rows for the read API.
 type SubscriberLogFilter struct {
 	SubscriberID string
 	From         time.Time
@@ -133,7 +133,7 @@ type SubscriberLogFilter struct {
 func (r *CredentialRequestRepository) subscriberLogQuery(ctx context.Context, f SubscriberLogFilter) *gorm.DB {
 	return r.db.WithContext(ctx).Model(&models.CredentialRequest{}).
 		Where("subscriber_id = ?", f.SubscriberID).
-		// /verify-identity rows only: a /credential submission always fills both.
+		// /verify rows only: a /credential submission always fills both.
 		Where("participant_id = '' AND payload_hash = ''").
 		Where("created_at >= ? AND created_at < ?", f.From, f.To)
 }

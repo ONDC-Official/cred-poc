@@ -14,7 +14,7 @@ type CredentialRequest struct {
 	PayloadHash        string           `gorm:"type:text;not null"`
 	// SubscriberID is the ONDC caller from the Authorization keyId; '' on /credential rows.
 	SubscriberID string `gorm:"type:text;not null;default:''"`
-	// Verbatim HTTP bodies of a /verify-identity call, nil on /credential rows. Text,
+	// Verbatim HTTP bodies of a /verify call, nil on /credential rows. Text,
 	// not jsonb: jsonb reorders keys and reformats spacing.
 	RequestBody  *string `gorm:"type:text"`
 	ResponseBody *string `gorm:"type:text"`

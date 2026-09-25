@@ -103,7 +103,7 @@ func TestIdentityServiceResolvesGST(t *testing.T) {
 }
 
 // FSSAI/UDYAM are registered in the same VerifierRegistry PAN/GST use, so
-// they resolve on /verify-identity too, even though docs/IMPLEMENTATION_ROADMAP.md
+// they resolve on /verify too, even though docs/IMPLEMENTATION_ROADMAP.md
 // originally sketched Phase 8 as "async path only" — that plan didn't
 // account for IdentityService.VerifyIdentity being the one shared function
 // both paths depend on (see the Round 5 architecture note in CLAUDE.md).

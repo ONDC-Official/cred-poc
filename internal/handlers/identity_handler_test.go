@@ -67,7 +67,7 @@ func TestVerifyIdentityValidPAN(t *testing.T) {
 	})
 
 	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -105,7 +105,7 @@ func TestVerifyIdentityValidPANVerboseIncludesProviderResponse(t *testing.T) {
 	})
 
 	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity?verbose=true", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify?verbose=true", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -141,7 +141,7 @@ func TestVerifyIdentityPANDigioRejectionIsFailure(t *testing.T) {
 	})
 
 	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -175,7 +175,7 @@ func TestVerifyIdentityGSTRejectionWithNonJSONBody502s(t *testing.T) {
 	})
 
 	body := bytes.NewBufferString(`{"cred_id":"29AABCU9603R1ZM","cred_type":"GST"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity?verbose=true", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify?verbose=true", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -202,7 +202,7 @@ func TestVerifyIdentityPANSendsIDOnly(t *testing.T) {
 	})
 
 	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F","cred_type":"PAN"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -235,7 +235,7 @@ func TestVerifyIdentityValidGST(t *testing.T) {
 	})
 
 	body := bytes.NewBufferString(`{"cred_id":"29AABCU9603R1ZM","cred_type":"GST"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -254,7 +254,7 @@ func TestVerifyIdentityInvalidJSON(t *testing.T) {
 
 	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {})
 	body := bytes.NewBufferString(`{invalid`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -273,7 +273,7 @@ func TestVerifyIdentityMissingCredID(t *testing.T) {
 
 	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {})
 	body := bytes.NewBufferString(`{"cred_type":"PAN"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -297,7 +297,7 @@ func TestVerifyIdentityMissingCredType(t *testing.T) {
 
 	app := setupTestApp(t, func(w http.ResponseWriter, r *http.Request) {})
 	body := bytes.NewBufferString(`{"cred_id":"ABCDE1234F"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -321,7 +321,7 @@ func TestVerifyIdentityPANFormatNoLongerValidated(t *testing.T) {
 		_, _ = w.Write([]byte(`{"pan":"INVALID","category":"Individual","status":"VALID","full_name":"John Doe"}`))
 	})
 	body := bytes.NewBufferString(`{"cred_id":"INVALID","cred_type":"PAN"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -345,7 +345,7 @@ func TestVerifyIdentityMissingIDNoNeverCallsProvider(t *testing.T) {
 	// (non-empty string) but normalizes (trim) to empty, so it fails the
 	// credential-type's own required id_no check before any provider call.
 	body := bytes.NewBufferString(`{"cred_id":"   ","cred_type":"PAN"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -369,7 +369,7 @@ func TestVerifyIdentityUnsupportedCredType(t *testing.T) {
 		t.Fatal("Digio should never be called for an unsupported credential type")
 	})
 	body := bytes.NewBufferString(`{"cred_id":"123","cred_type":"PAN_TO_GST"}`)
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", body)
+	req := httptest.NewRequest(http.MethodPost, "/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)

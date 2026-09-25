@@ -44,7 +44,7 @@ func TestSignatureAuthAllowsRegistrySignedRequest(t *testing.T) {
 	}
 
 	app := fiber.New()
-	app.Post("/verify-identity",
+	app.Post("/verify",
 		middleware.CaptureRawBody(),
 		middleware.SignatureAuth(verifier),
 		func(c *fiber.Ctx) error {
@@ -52,7 +52,7 @@ func TestSignatureAuthAllowsRegistrySignedRequest(t *testing.T) {
 		},
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", header)
 
@@ -82,7 +82,7 @@ func TestSignatureAuthRejectsUnsignedRequest(t *testing.T) {
 	}
 
 	app := fiber.New()
-	app.Post("/verify-identity",
+	app.Post("/verify",
 		middleware.CaptureRawBody(),
 		middleware.SignatureAuth(verifier),
 		func(c *fiber.Ctx) error {
@@ -90,7 +90,7 @@ func TestSignatureAuthRejectsUnsignedRequest(t *testing.T) {
 		},
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/verify-identity", strings.NewReader(`{"cred_type":"PAN"}`))
+	req := httptest.NewRequest(http.MethodPost, "/verify", strings.NewReader(`{"cred_type":"PAN"}`))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)

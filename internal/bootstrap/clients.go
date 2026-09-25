@@ -34,7 +34,7 @@ func setupProviderGateway(cfg *config.Config) (*provider.Gateway, error) {
 
 func setupAuthVerifier(cfg *config.Config) (*auth.Verifier, error) {
 	if !cfg.Auth.Enabled {
-		slog.Info("signature auth disabled (CREDENTIAL_SERVICE_AUTH_ENABLED=false); /verify-identity and /credential are open")
+		slog.Info("signature auth disabled (CREDENTIAL_SERVICE_AUTH_ENABLED=false); /verify and /credential are open")
 		return nil, nil
 	}
 	var registryClient auth.RegistryClient

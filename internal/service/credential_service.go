@@ -39,7 +39,7 @@ type CredentialService struct {
 	// registry is used only for SubmitCredentials' pre-persistence
 	// validation (ValidateCredData) — cheap, synchronous, never calls
 	// Digio. The actual Digio verification always goes through
-	// identityService.VerifyIdentity, the same function /verify-identity
+	// identityService.VerifyIdentity, the same function /verify
 	// uses, so there is exactly one place in the codebase that talks to
 	// Digio for a single credential.
 	registry        *credential.VerifierRegistry
