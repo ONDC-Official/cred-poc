@@ -103,3 +103,61 @@ func TestSignatureAuthRejectsUnsignedRequest(t *testing.T) {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
 }
+
+func TestSignatureAuthSetsSubscriberIDInUserContext(t *testing.T) {
+	t.Parallel()
+
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	body := `{"cred_id":"ABCDE1234F","cred_type":"PAN"}`
+	header, err := ondcauth.CreateAuthorizationHeader(ondcauth.CreateAuthorizationHeaderParams{
+		Body:                  body,
+		PrivateKey:            base64.StdEncoding.EncodeToString(priv),
+		SubscriberID:          "buyer-app.com",
+		SubscriberUniqueKeyID: "key-1",
+	})
+	if err != nil {
+		t.Fatalf("create header: %v", err)
+	}
+
+	verifier, err := auth.NewVerifier(auth.Config{
+		RegistrySigningPublicKey: base64.StdEncoding.EncodeToString(pub),
+		ExpectedSubscriberID:     "buyer-app.com",
+		ExpectedUniqueKeyID:      "key-1",
+	})
+	if err != nil {
+		t.Fatalf("new verifier: %v", err)
+	}
+
+	var capturedSubID string
+	app := fiber.New()
+	app.Post("/verify",
+		middleware.CaptureRawBody(),
+		middleware.SignatureAuth(verifier),
+		func(c *fiber.Ctx) error {
+			capturedSubID = middleware.ClaimedIdentity(c).SubscriberID
+			return c.SendStatus(fiber.StatusOK)
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/verify", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", header)
+
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if capturedSubID != "buyer-app.com" {
+		t.Fatalf("captured subscriber_id = %q, want buyer-app.com", capturedSubID)
+	}
+}
+
