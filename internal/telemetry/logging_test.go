@@ -54,3 +54,22 @@ func TestTraceHandlerOmitsTraceIDsWithoutSpan(t *testing.T) {
 		t.Fatalf("unexpected trace_id without a span: %v", line)
 	}
 }
+
+func TestTraceHandlerAddsSubscriberIDFromContext(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := slog.New(newHandler(&buf, false))
+
+	ctx := WithSubscriberID(context.Background(), "seller-app.com")
+	logger.InfoContext(ctx, "test log")
+
+	var line map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+		t.Fatalf("log line is not JSON: %v: %s", err, buf.String())
+	}
+	if line["subscriber_id"] != "seller-app.com" {
+		t.Fatalf("subscriber_id = %v, want seller-app.com", line["subscriber_id"])
+	}
+}
+

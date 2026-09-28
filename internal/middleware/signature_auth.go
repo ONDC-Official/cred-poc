@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"credential-service/internal/auth"
+	"credential-service/internal/telemetry"
 	"credential-service/pkg/ondcauth"
 
 	"github.com/gofiber/fiber/v2"
@@ -18,6 +19,11 @@ const (
 // NPs do not call credential-service; only the registry service is trusted.
 func SignatureAuth(verifier *auth.Verifier) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		claimed := ClaimedIdentity(c)
+		if claimed.SubscriberID != "" {
+			c.SetUserContext(telemetry.WithSubscriberID(c.UserContext(), claimed.SubscriberID))
+		}
+
 		if verifier == nil {
 			return c.Next()
 		}
@@ -41,6 +47,9 @@ func SignatureAuth(verifier *auth.Verifier) fiber.Handler {
 		}
 
 		c.Locals(identityLocalKey, identity)
+		if identity.SubscriberID != "" {
+			c.SetUserContext(telemetry.WithSubscriberID(c.UserContext(), identity.SubscriberID))
+		}
 		return c.Next()
 	}
 }
