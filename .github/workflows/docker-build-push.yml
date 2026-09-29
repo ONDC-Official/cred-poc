@@ -91,3 +91,95 @@ jobs:
             git commit -m "ci(cred-poc): update image tag to ${NEW_TAG}"
             git push origin main
           fi
+
+      - name: Send Google Chat Notification
+        if: always()
+        env:
+          GCHAT_WEBHOOK_URL: ${{ secrets.GCHAT_WEBHOOK_URL }}
+          JOB_STATUS: ${{ job.status }}
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_ID: ${{ github.run_id }}
+          ACTOR: ${{ github.actor }}
+          HEAD_COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          python3 -c '
+          import os, sys, json, urllib.request, subprocess
+
+          webhook_url = os.environ.get("GCHAT_WEBHOOK_URL", "").strip()
+          if not webhook_url:
+              print("GCHAT_WEBHOOK_URL is not set. Skipping notification.")
+              sys.exit(0)
+
+          status = os.environ.get("JOB_STATUS", "unknown").lower()
+          branch = os.environ.get("REF_NAME", "")
+          repo = os.environ.get("REPO", "")
+          server_url = os.environ.get("SERVER_URL", "https://github.com")
+          run_id = os.environ.get("RUN_ID", "")
+          actor = os.environ.get("ACTOR", "")
+          sha = os.environ.get("COMMIT_SHA", "")
+          short_sha = sha[:7] if sha else ""
+          workspace = os.environ.get("GITHUB_WORKSPACE", ".")
+
+          # Fetch commit message and author from git log or event fallback
+          try:
+              commit_msg = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], cwd=workspace).decode("utf-8").strip()
+              commit_author = subprocess.check_output(["git", "log", "-1", "--pretty=%an"], cwd=workspace).decode("utf-8").strip()
+          except Exception:
+              fallback_msg = os.environ.get("HEAD_COMMIT_MSG", "").strip()
+              commit_msg = fallback_msg.splitlines()[0] if fallback_msg else "N/A"
+              commit_author = actor
+
+          pipeline_url = f"{server_url}/{repo}/actions/runs/{run_id}"
+          changes_url = f"{server_url}/{repo}/commit/{sha}"
+
+          if status == "success":
+              status_title = "✅ Pipeline Passed"
+              status_badge = "<font color=\"#2EB886\"><b>PASSED</b></font>"
+          elif status == "cancelled":
+              status_title = "⚠️ Pipeline Cancelled"
+              status_badge = "<font color=\"#FFA500\"><b>CANCELLED</b></font>"
+          else:
+              status_title = "❌ Pipeline Failed"
+              status_badge = "<font color=\"#D9383A\"><b>FAILED</b></font>"
+
+          author_display = f"{commit_author} (@{actor})" if commit_author and commit_author != actor else actor
+
+          payload = {
+              "cardsV2": [{
+                  "cardId": "cred-poc-pipeline-alert",
+                  "card": {
+                      "header": {
+                          "title": f"cred-poc: {status_title}",
+                          "subtitle": f"Repository: {repo}"
+                      },
+                      "sections": [{
+                          "widgets": [
+                              {"decoratedText": {"topLabel": "Status", "text": status_badge}},
+                              {"decoratedText": {"topLabel": "Branch", "text": f"<code>{branch}</code>"}},
+                              {"decoratedText": {"topLabel": "Commit", "text": f"<code>{short_sha}</code> - {commit_msg}"}},
+                              {"decoratedText": {"topLabel": "Author", "text": author_display}},
+                              {
+                                  "buttonList": {
+                                      "buttons": [
+                                          {"text": "View Pipeline", "onClick": {"openLink": {"url": pipeline_url}}},
+                                          {"text": "View Changes", "onClick": {"openLink": {"url": changes_url}}}
+                                      ]
+                                  }
+                              }
+                          ]
+                      }]
+                  }
+              }]
+          }
+
+          data = json.dumps(payload).encode("utf-8")
+          req = urllib.request.Request(webhook_url, data=data, headers={"Content-Type": "application/json"})
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  print(f"Google Chat notification sent: HTTP {resp.status}")
+          except Exception as e:
+              print(f"Failed to send Google Chat notification: {e}", file=sys.stderr)
+          '
