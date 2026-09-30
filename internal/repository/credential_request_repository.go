@@ -157,6 +157,19 @@ func (r *CredentialRequestRepository) CountBySubscriber(ctx context.Context, f S
 	return total, err
 }
 
+// CountVerifyVendorCalls counts /verify rows of one cred_type that reached a provider:
+// evidences is written only when a provider was called, so validation-rejected calls
+// are left out.
+func (r *CredentialRequestRepository) CountVerifyVendorCalls(ctx context.Context, credTypeID uuid.UUID) (int64, error) {
+	var total int64
+	err := r.db.WithContext(ctx).Model(&models.CredentialRequest{}).
+		Where("cred_type = ?", credTypeID).
+		Where("participant_id = '' AND payload_hash = ''").
+		Where("evidences IS NOT NULL").
+		Count(&total).Error
+	return total, err
+}
+
 func (r *CredentialRequestRepository) UpdateVerificationResult(ctx context.Context, id uuid.UUID, statusID uuid.UUID, verifierID *uuid.UUID, evidences json.RawMessage) error {
 	return r.db.WithContext(ctx).Model(&models.CredentialRequest{}).
 		Where("id = ?", id).

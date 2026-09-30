@@ -39,6 +39,7 @@ type credentialStack struct {
 	handler     *handlers.CredentialHandler
 	worker      *worker.CredentialWorker
 	logger      *service.VerifyIdentityLogger
+	limiter     *service.VerifyLimiter
 	logsHandler *handlers.SubscriberLogHandler
 }
 
@@ -47,6 +48,7 @@ func setupCredentialStack(
 	registry *credential.VerifierRegistry,
 	identityService *service.IdentityService,
 	defaultValidity time.Duration,
+	verifyLimit int,
 ) (*credentialStack, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database required for credential stack")
@@ -69,6 +71,7 @@ func setupCredentialStack(
 		handler: credHandler,
 		worker:  credWorker,
 		logger:      service.NewVerifyIdentityLogger(credReqRepo, enumCache, registry),
+		limiter:     service.NewVerifyLimiter(credReqRepo, enumCache, verifyLimit),
 		logsHandler: handlers.NewSubscriberLogHandler(credReqRepo, enumCache),
 	}, nil
 }

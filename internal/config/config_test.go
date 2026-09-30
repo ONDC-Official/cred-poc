@@ -95,3 +95,18 @@ func TestTelemetryEnabledEnvKey(t *testing.T) {
 		t.Fatal("CREDENTIAL_SERVICE_OTEL_ENABLED did not map to cfg.Telemetry.Enabled")
 	}
 }
+
+func TestVerifyLimitParsed(t *testing.T) {
+	t.Setenv("CREDENTIAL_SERVICE_DIGIO_BASE_URL", "https://example.com")
+	t.Setenv("CREDENTIAL_SERVICE_DIGIO_TOKEN", "tok")
+	t.Setenv("CREDENTIAL_SERVICE_VERIFY_LIMIT", "5000")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Verify.Limit != 5000 {
+		t.Fatalf("unexpected limit: %d", cfg.Verify.Limit)
+	}
+}

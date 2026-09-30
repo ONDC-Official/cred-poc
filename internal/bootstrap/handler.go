@@ -26,11 +26,12 @@ func NewHandlers(
 	identityService *service.IdentityService,
 	credHandler *handlers.CredentialHandler,
 	verifyIdentityLogger *service.VerifyIdentityLogger,
+	verifyLimiter *service.VerifyLimiter,
 	subscriberLogs *handlers.SubscriberLogHandler,
 ) *Handlers {
 	h := &Handlers{
 		Health:      handlers.NewHealthHandler(),
-		Identity:    handlers.NewIdentityHandler(identityService, verifyIdentityLogger),
+		Identity:    handlers.NewIdentityHandler(identityService, verifyIdentityLogger, verifyLimiter),
 		Credential:  credHandler,
 		accessToken: strings.TrimSpace(cfg.AccessToken),
 	}

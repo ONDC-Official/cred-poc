@@ -75,18 +75,21 @@ func newApp(cfg *config.Config) (*App, error) {
 	identityService := setupIdentityService(registry)
 
 	var credWorker *worker.CredentialWorker
-	stack, err := setupCredentialStack(db, registry, identityService, cfg.Credential.DefaultValidity)
+	stack, err := setupCredentialStack(db, registry, identityService, cfg.Credential.DefaultValidity, cfg.Verify.Limit)
 	if err != nil {
 		if db != nil {
 			return nil, fmt.Errorf("failed to setup credential stack: %w", err)
 		}
 		slog.Info("credential stack not initialized (no database)")
+		if cfg.Verify.Limit > 0 {
+			slog.Warn("verify limit configured but no database; limit not enforced")
+		}
 		stack = &credentialStack{}
 	} else {
 		credWorker = stack.worker
 	}
 
-	handlers := NewHandlers(cfg, identityService, stack.handler, stack.logger, stack.logsHandler)
+	handlers := NewHandlers(cfg, identityService, stack.handler, stack.logger, stack.limiter, stack.logsHandler)
 	if handlers.Auth != nil {
 		slog.Warn("POST /generate-header is enabled and UNAUTHENTICATED; it signs any payload with this service's key. Local testing only.")
 	}

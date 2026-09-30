@@ -145,6 +145,12 @@ func RunMigrations(db *gorm.DB) error {
 				END IF;
 			END $$;
 		`},
+		// Backs the per-cred_type /verify limit count.
+		{"add verify vendor-call count index", `
+			CREATE INDEX IF NOT EXISTS idx_credential_requests_verify_vendor_calls
+				ON credential_requests(cred_type)
+				WHERE participant_id = '' AND payload_hash = '' AND evidences IS NOT NULL;
+		`},
 	}
 
 	for _, m := range migrations {

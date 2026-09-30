@@ -38,10 +38,12 @@ type IdentityHandler struct {
 	service *service.IdentityService
 	// logger is nil when no database is configured.
 	logger *service.VerifyIdentityLogger
+	// limiter is nil when no database is configured; a nil limiter allows everything.
+	limiter *service.VerifyLimiter
 }
 
-func NewIdentityHandler(svc *service.IdentityService, logger *service.VerifyIdentityLogger) *IdentityHandler {
-	return &IdentityHandler{service: svc, logger: logger}
+func NewIdentityHandler(svc *service.IdentityService, logger *service.VerifyIdentityLogger, limiter *service.VerifyLimiter) *IdentityHandler {
+	return &IdentityHandler{service: svc, logger: logger, limiter: limiter}
 }
 
 func (h *IdentityHandler) VerifyIdentity(c *fiber.Ctx) error {
@@ -56,6 +58,20 @@ func (h *IdentityHandler) VerifyIdentity(c *fiber.Ctx) error {
 	if err := utils.Validate(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
+		})
+	}
+
+	// Checked before any provider call, so a refused request costs nothing. Not recorded:
+	// it reached no provider, so it would not count anyway.
+	if err := h.limiter.Check(c.UserContext(), req.CredType); err != nil {
+		if errors.Is(err, service.ErrVerifyLimitExceeded) {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		slog.ErrorContext(c.UserContext(), "verify limit check failed", "cred_type", req.CredType, "error", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to check verify limit",
 		})
 	}
 

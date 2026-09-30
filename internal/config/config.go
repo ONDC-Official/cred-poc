@@ -12,6 +12,7 @@ type Config struct {
 	DB         DBConfig
 	Digio      DigioConfig
 	Credential CredentialConfig
+	Verify     VerifyConfig
 	Auth       AuthConfig
 	Telemetry  TelemetryConfig `envconfig:"OTEL"`
 	// AccessToken guards GET /subscriber/:id only, as a bare `Authorization: <token>`
@@ -53,6 +54,15 @@ type CredentialConfig struct {
 	TypesDir string `envconfig:"TYPES_DIR" default:"configs/credential-types"`
 	// ProvidersDir is the filesystem path to Git-tracked provider capability catalogs.
 	ProvidersDir string `envconfig:"PROVIDERS_DIR" default:"configs/providers"`
+}
+
+// VerifyConfig caps POST /verify per credential type.
+type VerifyConfig struct {
+	// Limit is a lifetime cap on /verify calls that reached a provider, applied to each
+	// cred_type separately: 5000 means 5000 PAN, 5000 GST, and so on. 0 is unlimited.
+	// Enforced only when a database is configured, since the count is read from
+	// credential_requests. Env: CREDENTIAL_SERVICE_VERIFY_LIMIT.
+	Limit int `envconfig:"LIMIT" default:"0"`
 }
 
 // TelemetryConfig switches OpenTelemetry export on. Everything else (endpoint, headers,

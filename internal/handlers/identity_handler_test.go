@@ -21,6 +21,11 @@ import (
 
 func setupTestApp(t *testing.T, digioHandler http.HandlerFunc) *fiber.App {
 	t.Helper()
+	return setupTestAppWithLimiter(t, digioHandler, nil)
+}
+
+func setupTestAppWithLimiter(t *testing.T, digioHandler http.HandlerFunc, limiter *service.VerifyLimiter) *fiber.App {
+	t.Helper()
 
 	server := httptest.NewServer(digioHandler)
 	t.Cleanup(server.Close)
@@ -50,7 +55,7 @@ func setupTestApp(t *testing.T, digioHandler http.HandlerFunc) *fiber.App {
 		t.Fatalf("NewRegistryFromDir: %v", err)
 	}
 	svc := service.NewIdentityService(registry)
-	h := bootstrap.NewHandlers(&config.Config{}, svc, nil, nil, nil)
+	h := bootstrap.NewHandlers(&config.Config{}, svc, nil, nil, limiter, nil)
 
 	app := fiber.New()
 	bootstrap.RegisterRoutes(app, h, nil)
@@ -391,7 +396,7 @@ func TestVerifyIdentityUnsupportedCredType(t *testing.T) {
 func TestHealthEndpoint(t *testing.T) {
 	t.Parallel()
 
-	h := bootstrap.NewHandlers(&config.Config{}, nil, nil, nil, nil)
+	h := bootstrap.NewHandlers(&config.Config{}, nil, nil, nil, nil, nil)
 	app := fiber.New()
 	app.Get("/health", h.Health.Check)
 
