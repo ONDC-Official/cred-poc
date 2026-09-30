@@ -48,6 +48,9 @@ func udyamParse(body []byte) (*VerificationResult, error) {
 
 	nameOfEnterprise, _ := d["Name of Enterprise"].(string)
 	majorActivity, _ := d["Major Activity"].(string)
+	// Digio returns the mobile already masked (e.g. "99*****411"); pass it through as-is.
+	mobile, _ := d["Mobile"].(string)
+	email, _ := d["Email"].(string)
 
 	return &VerificationResult{
 		Success: true,
@@ -59,6 +62,8 @@ func udyamParse(body []byte) (*VerificationResult, error) {
 			"name_of_enterprise":  nameOfEnterprise,
 			"major_activity":      majorActivity,
 			"nic_2_digit":         nic2Digit,
+			"mobile":              mobile,
+			"email":               email,
 		},
 	}, nil
 }

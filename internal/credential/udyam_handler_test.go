@@ -80,7 +80,9 @@ func TestUdyamHandlerProcessAttachesEvidences(t *testing.T) {
 			],
 			"National Industry Classification Code(S)": [
 				{"Nic 2 Digit": "10"}
-			]
+			],
+			"Mobile": "99*****599",
+			"Email": "test@example.com"
 		}`))
 	}))
 	defer server.Close()
@@ -107,6 +109,12 @@ func TestUdyamHandlerProcessAttachesEvidences(t *testing.T) {
 	}
 	if result.VerifiedData["nic_2_digit"] != "10" {
 		t.Fatalf("unexpected nic_2_digit: %v", result.VerifiedData)
+	}
+	if result.VerifiedData["mobile"] != "99*****411" {
+		t.Fatalf("unexpected mobile: %v", result.VerifiedData)
+	}
+	if result.VerifiedData["email"] != "test@example.com" {
+		t.Fatalf("unexpected email: %v", result.VerifiedData)
 	}
 	if len(result.Evidences) != 2 {
 		t.Fatalf("expected exactly 2 evidences (request + response), got %d: %+v", len(result.Evidences), result.Evidences)

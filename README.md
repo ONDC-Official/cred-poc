@@ -118,7 +118,7 @@ POST https://workbench.ondc.tech/cred/verify
 | `PAN` | `pan`, `full_name`, `category`, `status` |
 | `GST` | `gstin`, `corporate_name`, `details` |
 | `FSSAI` | `license_no`, `company_name`, `premises_address`, `status`, and either `state`, `license_status`, `license_category` or `expiry_date`, `kind_of_business` |
-| `UDYAM` | `uan`, `name_of_enterprise`, `enterprise_type`, `classification_date`, `major_activity`, `nic_2_digit` |
+| `UDYAM` | `uan`, `name_of_enterprise`, `enterprise_type`, `classification_date`, `major_activity`, `nic_2_digit`, `mobile` (masked by the source, e.g. `99*****411`), `email` |
 
 Any field in `data` can be empty if the source did not return it.
 
