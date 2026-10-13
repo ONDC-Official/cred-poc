@@ -71,7 +71,7 @@ func setupCredentialStack(
 		handler: credHandler,
 		worker:  credWorker,
 		logger:      service.NewVerifyIdentityLogger(credReqRepo, enumCache, registry),
-		limiter:     service.NewVerifyLimiter(credReqRepo, enumCache, verifyLimit),
+		limiter:     service.NewVerifyLimiter(credReqRepo, verifyLimit),
 		logsHandler: handlers.NewSubscriberLogHandler(credReqRepo, enumCache),
 	}, nil
 }

@@ -56,10 +56,11 @@ type CredentialConfig struct {
 	ProvidersDir string `envconfig:"PROVIDERS_DIR" default:"configs/providers"`
 }
 
-// VerifyConfig caps POST /verify per credential type.
+// VerifyConfig caps POST /verify per subscriber_id.
 type VerifyConfig struct {
 	// Limit is a lifetime cap on /verify calls that reached a provider, applied to each
-	// cred_type separately: 5000 means 5000 PAN, 5000 GST, and so on. 0 is unlimited.
+	// subscriber_id (from the Authorization keyId) across all cred_types: 5000 means
+	// 5000 PAN+GST+FSSAI+UDYAM calls per subscriber. 0 is unlimited.
 	// Enforced only when a database is configured, since the count is read from
 	// credential_requests. Env: CREDENTIAL_SERVICE_VERIFY_LIMIT.
 	Limit int `envconfig:"LIMIT" default:"0"`
