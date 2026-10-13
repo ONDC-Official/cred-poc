@@ -62,14 +62,23 @@ func (h *IdentityHandler) VerifyIdentity(c *fiber.Ctx) error {
 	}
 
 	// Checked before any provider call, so a refused request costs nothing. Not recorded:
-	// it reached no provider, so it would not count anyway.
-	if err := h.limiter.Check(c.UserContext(), req.CredType); err != nil {
-		if errors.Is(err, service.ErrVerifyLimitExceeded) {
+	// it reached no provider, so it would not count anyway. The limit is per subscriber_id,
+	// taken from the Authorization keyId (verified when signature auth is on).
+	subscriberID := appmiddleware.ClaimedIdentity(c).SubscriberID
+	if err := h.limiter.Check(c.UserContext(), subscriberID); err != nil {
+		switch {
+		case errors.Is(err, service.ErrVerifyLimitExceeded):
+			// The response does not name the subscriber, so record who hit the cap.
+			slog.InfoContext(c.UserContext(), "verify limit reached", "subscriber_id", subscriberID)
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 				"error": err.Error(),
 			})
+		case errors.Is(err, service.ErrSubscriberUnknown):
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": err.Error(),
+			})
 		}
-		slog.ErrorContext(c.UserContext(), "verify limit check failed", "cred_type", req.CredType, "error", err)
+		slog.ErrorContext(c.UserContext(), "verify limit check failed", "subscriber_id", subscriberID, "error", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "failed to check verify limit",
 		})

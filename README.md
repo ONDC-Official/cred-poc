@@ -128,7 +128,9 @@ Any field in `data` can be empty if the source did not return it.
 |---|---|---|
 | `200` | Verification ran. Check `success`. | — |
 | `400` | Invalid request | `cred_id is required`, `cred_type is required`, `unsupported credential type: pan`, `invalid JSON` |
-| `401` | Authorization failed | `authorization header is required`, `invalid authorization header: invalid signature`, `invalid authorization header: authorization header expired` |
+| `401` | Authorization failed | `authorization header is required`, `invalid authorization header: invalid signature`, `invalid authorization header: authorization header expired`, `subscriber_id missing from authorization header` |
+| `429` | Your subscriber_id has used up its verification limit (all credential types combined); no check was made | `Verification limit reached. Please contact the ONDC team.` |
+| `500` | The limit could not be checked; try again later | `failed to check verify limit` |
 | `502` | The verification source returned an unreadable reply; try again later | — |
 
 Every non-`200` body looks like `{"error": "..."}`.
@@ -142,6 +144,9 @@ Every non-`200` body looks like `{"error": "..."}`.
   recheck the number.
 - **Try again later** if the `error` mentions `status 5xx`, or on `502` or a timeout.
 - **Fix the request** on `400` / `401`. Retrying it unchanged will fail again.
+- **Stop** on `429`. Your subscriber_id's limit is used up and does not reset; retrying will
+  keep failing. Contact the ONDC team. Only calls that reached the
+  verification source count; `400` responses do not.
 - One request verifies one credential. Allow a timeout of up to **90 seconds**.
 
 ---

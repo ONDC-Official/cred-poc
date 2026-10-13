@@ -157,13 +157,13 @@ func (r *CredentialRequestRepository) CountBySubscriber(ctx context.Context, f S
 	return total, err
 }
 
-// CountVerifyVendorCalls counts /verify rows of one cred_type that reached a provider:
-// evidences is written only when a provider was called, so validation-rejected calls
-// are left out.
-func (r *CredentialRequestRepository) CountVerifyVendorCalls(ctx context.Context, credTypeID uuid.UUID) (int64, error) {
+// CountVerifyVendorCallsBySubscriber counts one subscriber's /verify rows, of any
+// cred_type, that reached a provider: evidences is written only when a provider was
+// called, so validation-rejected calls are left out.
+func (r *CredentialRequestRepository) CountVerifyVendorCallsBySubscriber(ctx context.Context, subscriberID string) (int64, error) {
 	var total int64
 	err := r.db.WithContext(ctx).Model(&models.CredentialRequest{}).
-		Where("cred_type = ?", credTypeID).
+		Where("subscriber_id = ?", subscriberID).
 		Where("participant_id = '' AND payload_hash = ''").
 		Where("evidences IS NOT NULL").
 		Count(&total).Error
